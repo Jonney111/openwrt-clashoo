@@ -202,13 +202,13 @@ jobs:
             i18n=""
 
             if ls "$target"/clashoo_*.ipk >/dev/null 2>&1; then
-              core=$(basename "$(ls "$target"/clashoo_*.ipk | head -1)")
-              luci=$(basename "$(ls "$target"/luci-app-clashoo_*.ipk | head -1)")
-              i18n=$(basename "$(ls "$target"/luci-i18n-clashoo-zh-cn_*.ipk | head -1)")
+              core=$(basename "$(ls "$target"/clashoo_*.ipk | sort -V | tail -1)")
+              luci=$(basename "$(ls "$target"/luci-app-clashoo_*.ipk 2>/dev/null | head -1)")
+              i18n=$(basename "$(ls "$target"/luci-i18n-clashoo-zh-cn_*.ipk 2>/dev/null | head -1)")
             elif ls "$target"/clashoo-*.apk >/dev/null 2>&1; then
-              core=$(basename "$(ls "$target"/clashoo-*.apk | head -1)")
-              luci=$(basename "$(ls "$target"/luci-app-clashoo-*.apk | head -1)")
-              i18n=$(basename "$(ls "$target"/luci-i18n-clashoo-zh-cn-*.apk | head -1)")
+              core=$(basename "$(ls "$target"/clashoo-*.apk | sort -V | tail -1)")
+              luci=$(basename "$(ls "$target"/luci-app-clashoo-*.apk 2>/dev/null | head -1)")
+              i18n=$(basename "$(ls "$target"/luci-i18n-clashoo-zh-cn-*.apk 2>/dev/null | head -1)")
             fi
 
             if [ -n "$core" ] && [ -n "$luci" ]; then
@@ -237,7 +237,7 @@ jobs:
           key = ${B2_APPLICATION_KEY}
           hard_delete = true
           EOF
-          rclone sync feed/ "b2:${B2_BUCKET}/clashoo/" \
+          rclone sync feed/ "b2:${B2_BUCKET}/openwrt-feed/" \
             --checksum \
             --fast-list \
             --transfers 8 \

@@ -2,7 +2,7 @@
 
 set -eu
 
-B2_FEED_BASE_URL="https://kenzo111.s3.us-west-004.backblazeb2.com/clashoo"
+B2_FEED_BASE_URL="https://kenzo111.s3.us-west-004.backblazeb2.com/openwrt-feed"
 TMP_DIR="/tmp/clashoo-install"
 
 fetch_text() {
@@ -144,7 +144,7 @@ load_manifest_urls() {
 load_opkg_feed_urls() {
   sdk="$1"
   arch="$2"
-  packages_url="${B2_FEED_BASE_URL}/${sdk}/${arch}/Packages"
+  packages_url="${B2_FEED_BASE_URL}/${sdk}/${arch}/Packages.gz"
   packages_text="$(fetch_text "$packages_url" || true)"
   if ! printf '%s' "$packages_text" | grep -q '^Package: '; then
     return 1
