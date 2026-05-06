@@ -497,13 +497,25 @@ return view.extend({
     wrap.appendChild(this._renderCoreSwitch(this._lastSt || {}));
   },
 
+  _showCoreSwitchHint: function (msg) {
+    var self = this;
+    self._coreSwitchMsg = msg;
+    self._refreshCoreSwitch();
+    setTimeout(function () {
+      if (self._coreSwitchMsg === msg) {
+        self._coreSwitchMsg = '';
+        self._refreshCoreSwitch();
+      }
+    }, 3500);
+  },
+
   _switchCore: function (targetCore) {
     var self = this;
     if (self._coreSwitchBusy)
       return Promise.resolve();
 
     if (targetCore === 'smart' && self._lastSt && self._lastSt.has_smart === false) {
-      ui.addNotification(null, E('p', '未检测到 Smart 内核。「更新模型」只更新 Smart 模型，不会安装 Smart 内核；请到「系统 → 内核更新」选择 mihomo Smart 版并下载。'));
+      self._showCoreSwitchHint('未检测到 Smart 内核；更新模型不会安装内核，请到系统页下载 Smart 版');
       return Promise.resolve();
     }
 
@@ -527,6 +539,10 @@ return view.extend({
 
     return clashoo.setCore(rpcCore, nextDcore)
       .then(function (r) {
+        if (r && r.success === false && r.error === 'smart_core_missing') {
+          self._showCoreSwitchHint('未检测到 Smart 内核；更新模型不会安装内核，请到系统页下载 Smart 版');
+          throw { soft: true };
+        }
         if (r && r.success === false)
           throw new Error(r.message || '切换内核失败');
         self._lastSt = self._lastSt || {};
@@ -550,6 +566,8 @@ return view.extend({
         ui.addNotification(null, E('p', msg));
       })
       .catch(function (e) {
+        if (e && e.soft)
+          return;
         self._coreSwitchMsg = '切换失败';
         ui.addNotification(null, E('p', '切换失败: ' + (e.message || e)));
       })
