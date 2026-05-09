@@ -69,3 +69,4 @@ openwrt-clashoo-test/
 # ── macOS / 系统 ──
 .DS_Store
 Thumbs.db
+scripts/compose_screenshots.py
