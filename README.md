@@ -65,23 +65,16 @@
 
 ## 界面预览（暗黑模式）
 
-**概览 · mihomo 运行中**
-![overview-mihomo](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-overview-mihomo.png)
+三个内核（Mihomo / Smart / Sing-box）在 Fake-IP 模式下的运行状态，访问检查全绿：
 
-**概览 · sing-box 运行中**
-![overview-singbox](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-overview-singbox.png)
+![hero](docs/screenshots/hero-1x3.png)
 
-**DNS 配置**
-![config-dns](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-config-dns.png)
+<details>
+<summary>展开看 3 内核 × 3 模式 的完整 9 宫格（Fake-IP / TUN / Mixed）</summary>
 
-**sing-box 配置文件列表**
-![config-singbox](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-config-singbox.png)
+![grid](docs/screenshots/grid-3x3.png)
 
-**系统 · 内核与数据**
-![system-kernel](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-system-kernel.png)
-
-**系统 · 更新日志**
-![system-update-log](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-system-update-log.png)
+</details>
 
 ---
 
