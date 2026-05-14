@@ -73,6 +73,8 @@ jobs:
         run: |
           sed -i "s/PKG_SHORT_SHA:=.*/PKG_SHORT_SHA:=${{ needs.get_latest_info.outputs.short_sha }}/" clashoo/Makefile
           sed -i "s/PKG_COMMIT_DATE:=.*/PKG_COMMIT_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" clashoo/Makefile
+          # New upstream mihomo commit/date creates a new PKG_VERSION, so reset the OpenWrt package release.
+          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" clashoo/Makefile
           sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" clashoo/Makefile
           sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.mirror_hash }}/" clashoo/Makefile
 
