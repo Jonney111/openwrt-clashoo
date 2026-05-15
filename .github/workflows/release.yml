@@ -52,11 +52,13 @@ jobs:
           ARCH="${{ matrix.arch }}"
           mkdir -p dist/release dist/feed
 
-          # IPK：release 和 feed 都需要
+          # IPK：release 加安全文件名，feed 保留原名
           for f in bin/packages/${ARCH}/clashoo/*.ipk; do
             [ -f "$f" ] || continue
             [[ "$(basename $f)" == Packages* ]] && continue
-            cp -v "$f" dist/release/
+            base=$(basename "$f" .ipk)
+            safe="${base//\~/.}"
+            cp -v "$f" "dist/release/${safe}.ipk"
             cp -v "$f" dist/feed/
           done
 
