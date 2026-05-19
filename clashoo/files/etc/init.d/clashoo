@@ -1399,7 +1399,16 @@ boot(){
 		runtime_state_set "health_status" "starting"
 		runtime_state_set "health_detail" "boot_starting"
 		runtime_state_set "updated_at" "$(date +%s)"
-		start "$@"
+		# start_service does mihomo -t dry-run + firewall restart + dnsmasq restart
+		# (~20-30s on LXC). Doing this synchronously in boot() blocks rcS S99 stage
+		# and during that window sshd/uhttpd refuse connections (kex reset). Detach
+		# to background with a small settle delay so the rcS pipeline finishes and
+		# management plane stays responsive while clashoo brings the proxy up.
+		(
+			exec 1000>&- </dev/null >/dev/null 2>&1
+			sleep 5
+			/etc/init.d/clashoo start
+		) &
 	else
 		runtime_state_reset
 		runtime_state_set "health_status" "stopped"
