@@ -245,6 +245,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 仅保留最新 6 个 release，其余连同 tag 一并删除
+          gh release list -R "$REPO" --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[6:] | .[].tagName' > old_tags.txt
+          if [ ! -s old_tags.txt ]; then
+            echo "Releases <= 6, nothing to prune."
+            exit 0
+          fi
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "Deleting release & tag: $tag"
+            gh release delete "$tag" -R "$REPO" --yes --cleanup-tag
+          done < old_tags.txt
+
   upload_feed:
     name: Upload Feed to B2
     needs: build
