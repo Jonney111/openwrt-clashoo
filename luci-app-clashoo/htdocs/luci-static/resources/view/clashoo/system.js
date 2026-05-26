@@ -894,12 +894,14 @@ return view.extend({
     function buildLine(ln) {
       var cls = detectLevel(ln);
       var ts = '', msg = ln;
-      /* plugin / update: YYYY-MM-DD HH:MM:SS → MM-DD HH:MM:SS */
-      var pm = ln.match(/^\d{4}-(\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+-\s+(.*)$/);
-      if (pm) { ts = pm[1] + ' ' + pm[2]; msg = pm[3]; }
       /* core syslog: Mon DD HH:MM:SS YYYY → MM-DD HH:MM:SS */
       var cm = ln.match(/^(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+\d{4}\s+\S+\.(\S+)\s+\S+\[\d+\]:\s+(.*)$/);
       if (cm) { ts = (MONTHS[cm[1]] || cm[1]) + '-' + cm[2].padStart(2,'0') + ' ' + cm[3]; msg = cm[5] || ln; }
+      /* plugin / update: MM-DD HH:MM:SS [warn] message */
+      else if (/^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s/.test(ln)) {
+        ts = ln.substring(0,14);
+        msg = ln.substring(15);
+      }
       if (ts) {
         return '<div class="cl-log-line ' + cls + '"><span class="cl-log-ts">' + esc(ts) + '</span><span class="cl-log-msg">' + esc(msg) + '</span></div>';
       }
