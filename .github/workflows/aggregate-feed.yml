@@ -72,12 +72,10 @@ jobs:
 
           git clone --depth 1 https://github.com/openwrt/gh-action-sdk.git sdk-action
           docker build -t sdk-tools --build-arg ARCH=x86_64-openwrt-25.12 sdk-action
-          mkdir -p keys
           docker run --rm --user root \
             -v "$PWD/merged":/work \
             -v "$PWD/key-build":/keys/key-build:ro \
             -v "$PWD/private-key.pem":/keys/private-key.pem:ro \
-            -v "$PWD/keys":/out \
             sdk-tools bash -c '
               set -eu
               mkdir -p /artifacts && chmod 777 /artifacts
@@ -101,8 +99,9 @@ jobs:
                   "$PWD/staging_dir/host/bin/usign" -S -m Packages -s /keys/key-build
                 fi
               done
-              "$PWD/staging_dir/host/bin/usign" -F -p /out/dllkids-feed.pub -s /keys/key-build
-              cp /keys/private-key.pem /out/
+              mkdir -p /work/keys
+              "$PWD/staging_dir/host/bin/usign" -F -p /work/keys/dllkids-feed.pub -s /keys/key-build
+              cp /keys/private-key.pem /work/keys/
             '
 
       - name: Upload keys and feed
@@ -110,14 +109,14 @@ jobs:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
         run: |
           # Derive APK public key from private key
-          ls -la keys/
-          openssl ec -pubout -in keys/private-key.pem -out keys/dllkids-feed.pub.pem
-          rm -f keys/private-key.pem
+          ls -la merged/keys/
+          openssl ec -pubout -in merged/keys/private-key.pem -out merged/keys/dllkids-feed.pub.pem
+          rm -f merged/keys/private-key.pem
 
-          [ -s keys/dllkids-feed.pub ] || { echo "ERROR: OPKG public key missing"; exit 1; }
-          [ -s keys/dllkids-feed.pub.pem ] || { echo "ERROR: APK public key missing"; exit 1; }
+          [ -s merged/keys/dllkids-feed.pub ] || { echo "ERROR: OPKG public key missing"; exit 1; }
+          [ -s merged/keys/dllkids-feed.pub.pem ] || { echo "ERROR: APK public key missing"; exit 1; }
 
-          rclone copy keys/ "b2:${B2_BUCKET}/openwrt-feed/keys/" --checksum --fast-list
+          rclone copy merged/keys/ "b2:${B2_BUCKET}/openwrt-feed/keys/" --checksum --fast-list
 
           find merged -mindepth 2 -maxdepth 2 -type d | while read -r dir; do
             sdk=$(basename "$(dirname "$dir")")
