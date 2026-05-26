@@ -74,6 +74,7 @@ jobs:
           #!/usr/bin/env bash
           set -eu
           cd /builder 2>/dev/null || cd "$(find / -path "*/scripts/ipkg-make-index.sh" -type f 2>/dev/null | head -n 1 | sed "s#/scripts/ipkg-make-index.sh##")"
+          mkdir -p /artifacts
           [ ! -f setup.sh ] || bash setup.sh
           export PATH="$PWD/staging_dir/host/bin:$PATH"
           { echo '#!/bin/sh'; echo 'exec mkhash sha256 "$@"'; } > "$PWD/staging_dir/host/bin/sha256"
