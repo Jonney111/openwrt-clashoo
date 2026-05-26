@@ -72,10 +72,12 @@ jobs:
 
           git clone --depth 1 https://github.com/openwrt/gh-action-sdk.git sdk-action
           docker build -t sdk-tools --build-arg ARCH=x86_64-openwrt-25.12 sdk-action
+          mkdir -p keys
           docker run --rm --user root \
             -v "$PWD/merged":/work \
             -v "$PWD/key-build":/keys/key-build:ro \
             -v "$PWD/private-key.pem":/keys/private-key.pem:ro \
+            -v "$PWD/keys":/out \
             sdk-tools bash -c '
               set -eu
               mkdir -p /artifacts && chmod 777 /artifacts
@@ -99,33 +101,23 @@ jobs:
                   "$PWD/staging_dir/host/bin/usign" -S -m Packages -s /keys/key-build
                 fi
               done
+              "$PWD/staging_dir/host/bin/usign" -F -p /out/dllkids-feed.pub -s /keys/key-build
+              cp /keys/private-key.pem /out/
             '
 
       - name: Upload keys and feed
         env:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
-          KEY_BUILD: ${{ secrets.OPKG_KEY_BUILD }}
-          PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
         run: |
-          # Derive public keys
-          mkdir -p keys
-          printf '%s\n' "$KEY_BUILD" > /tmp/kb
-          printf '%s\n' "$PRIVATE_KEY" > /tmp/pk
-          openssl ec -pubout -in /tmp/pk -out keys/dllkids-feed.pub.pem 2>/dev/null
+          # Derive APK public key from private key
+          openssl ec -pubout -in keys/private-key.pem -out keys/dllkids-feed.pub.pem 2>/dev/null
+          rm -f keys/private-key.pem
 
-          docker run --rm \
-            -v /tmp/kb:/keys/key-build:ro \
-            -v "$PWD/keys":/out \
-            ghcr.io/openwrt/sdk:x86_64-openwrt-25.12 bash -c '
-              export PATH="$PWD/staging_dir/host/bin:$PATH"
-              usign -F -p /out/dllkids-feed.pub -s /keys/key-build
-            '
+          [ -s keys/dllkids-feed.pub ] || { echo "ERROR: OPKG public key missing"; exit 1; }
+          [ -s keys/dllkids-feed.pub.pem ] || { echo "ERROR: APK public key missing"; exit 1; }
 
-          [ -s keys/dllkids-feed.pub ] || { echo "ERROR: OPKG public key empty"; exit 1; }
-          [ -s keys/dllkids-feed.pub.pem ] || { echo "ERROR: APK public key empty"; exit 1; }
           rclone copy keys/ "b2:${B2_BUCKET}/openwrt-feed/keys/" --checksum --fast-list
 
-          # Upload unified feed indexes
           find merged -mindepth 2 -maxdepth 2 -type d | while read -r dir; do
             sdk=$(basename "$(dirname "$dir")")
             arch=$(basename "$dir")
