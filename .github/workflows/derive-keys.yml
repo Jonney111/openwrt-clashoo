@@ -1,0 +1,31 @@
+name: Derive public keys (one-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build usign and derive keys
+        env:
+          KEY_BUILD: ${{ secrets.OPKG_KEY_BUILD }}
+          PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq cmake libssl-dev
+          git clone --depth 1 https://github.com/openwrt/usign.git
+          cd usign && cmake . && make -j$(nproc) && sudo cp usign /usr/local/bin/
+
+          printf '%s\n' "$KEY_BUILD" > key-build
+          printf '%s\n' "$PRIVATE_KEY" > private-key.pem
+
+          echo ""
+          echo "=== OPKG_PUB_KEY (paste this value into secret OPKG_PUB_KEY) ==="
+          usign -F -p /dev/stdout -s key-build | base64 -w0
+          echo ""
+          echo "=== END OPKG_PUB_KEY ==="
+          echo ""
+
+          echo "=== APK_PUB_KEY (paste this value into secret APK_PUB_KEY) ==="
+          openssl ec -pubout -in private-key.pem 2>/dev/null
+          echo "=== END APK_PUB_KEY ==="
