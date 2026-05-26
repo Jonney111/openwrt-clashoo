@@ -51,6 +51,7 @@ jobs:
           cat /tmp/opkg-pub.key
           echo "=== END OPKG_PUB_KEY ==="
 
-          echo "=== APK_PUB_KEY ==="
-          openssl ec -pubout -in private-key.pem 2>/dev/null
-          echo "=== END APK_PUB_KEY ==="
+          echo "=== APK_PUB_KEY_B64 ==="
+          openssl ec -pubout -in private-key.pem 2>/dev/null | base64 -w0
+          echo ""
+          echo "=== END APK_PUB_KEY_B64 ==="
