@@ -19,7 +19,7 @@ jobs:
           printf '%s\n' "$KEY_BUILD" > key-build
           printf '%s\n' "$PRIVATE_KEY" > private-key.pem
 
-          usign -F -s key-build > /tmp/opkg-pub.key
+          usign -F -s key-build -p /tmp/opkg-pub.key || { echo "usign failed with $?"; ls -la key-build; usign --help 2>&1 | head -5; exit 1; }
 
           echo "=== OPKG_PUB_B64 ==="
           base64 -w0 /tmp/opkg-pub.key
