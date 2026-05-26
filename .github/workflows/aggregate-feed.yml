@@ -73,49 +73,86 @@ jobs:
           cat > /tmp/index-all.sh <<'SCRIPT'
           #!/usr/bin/env bash
           set -eu
-          cd /builder 2>/dev/null || cd "$(find / -path "*/scripts/ipkg-make-index.sh" -type f 2>/dev/null | head -n 1 | sed "s#/scripts/ipkg-make-index.sh##")"
-          mkdir -p /artifacts
-          [ ! -f setup.sh ] || bash setup.sh
-          export PATH="$PWD/staging_dir/host/bin:$PATH"
-          { echo '#!/bin/sh'; echo 'exec mkhash sha256 "$@"'; } > "$PWD/staging_dir/host/bin/sha256"
-          chmod +x "$PWD/staging_dir/host/bin/sha256"
-          apk_bin="$PWD/staging_dir/host/bin/apk"
-          usign_bin="$PWD/staging_dir/host/bin/usign"
-          ipkg_index="$PWD/scripts/ipkg-make-index.sh"
+
+          SDK_DIR=""
+          for d in /builder /home/builder /opt/sdk; do
+            if [ -d "$d/staging_dir/host/bin" ] && [ -f "$d/scripts/ipkg-make-index.sh" ]; then
+              SDK_DIR="$d"; break
+            fi
+          done
+          if [ -z "$SDK_DIR" ]; then
+            echo "ERROR: cannot find OpenWrt SDK directory"
+            find / -name "ipkg-make-index.sh" -type f 2>/dev/null | head -5
+            exit 1
+          fi
+
+          export PATH="$SDK_DIR/staging_dir/host/bin:$PATH"
+          APK="$SDK_DIR/staging_dir/host/bin/apk"
+          USIGN="$SDK_DIR/staging_dir/host/bin/usign"
+          MKGEN="$SDK_DIR/scripts/ipkg-make-index.sh"
+
+          # sha256 wrapper for ipkg-make-index.sh fallback path
+          if [ ! -x "$SDK_DIR/staging_dir/host/bin/sha256" ]; then
+            printf '#!/bin/sh\nexec mkhash sha256 "$@"\n' > "$SDK_DIR/staging_dir/host/bin/sha256"
+            chmod +x "$SDK_DIR/staging_dir/host/bin/sha256"
+          fi
+
           for dir in /work/*/*; do
             [ -d "$dir" ] || continue
             cd "$dir"
             if ls ./*.apk >/dev/null 2>&1; then
               rm -f packages.adb packages.adb.* APKINDEX*
-              "$apk_bin" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk
+              "$APK" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk
             fi
             if ls ./*.ipk >/dev/null 2>&1; then
               rm -f Packages Packages.gz Packages.sig
-              "$ipkg_index" . > Packages
+              "$MKGEN" . > Packages
               gzip -9nc Packages > Packages.gz
-              "$usign_bin" -S -m Packages -s /keys/key-build
+              "$USIGN" -S -m Packages -s /keys/key-build
             fi
           done
           SCRIPT
           chmod +x /tmp/index-all.sh
 
-          git clone --depth 1 https://github.com/openwrt/gh-action-sdk.git sdk-action
-          docker build -t openwrt-sdk-tools --build-arg ARCH=x86_64-openwrt-25.12 sdk-action
           docker run --rm \
             -v "$PWD/merged":/work \
             -v "$PWD/key-build":/keys/key-build:ro \
             -v "$PWD/private-key.pem":/keys/private-key.pem:ro \
             -v /tmp/index-all.sh:/index-all.sh \
-            openwrt-sdk-tools bash /index-all.sh
+            ghcr.io/openwrt/sdk:x86_64-openwrt-25.12 bash /index-all.sh
 
-      - name: Upload unified feed
+      - name: Upload keys and feed
         env:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          KEY_BUILD: ${{ secrets.OPKG_KEY_BUILD }}
+          PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
         run: |
+          # Derive and upload public keys
+          mkdir -p keys
+          printf '%s\n' "$KEY_BUILD" > /tmp/kb
+          printf '%s\n' "$PRIVATE_KEY" > /tmp/pk
+
+          # APK public key: extract from ECDSA private key PEM
+          openssl ec -pubout -in /tmp/pk -out keys/dllkids-feed.pub.pem 2>/dev/null
+
+          # OPKG public key: derive via usign in Docker
+          docker run --rm \
+            -v /tmp/kb:/keys/key-build:ro \
+            -v "$PWD/keys":/out \
+            ghcr.io/openwrt/sdk:x86_64-openwrt-25.12 bash -lc "
+              export PATH=\"\$PWD/staging_dir/host/bin:\$PATH\"
+              usign -F -p /out/dllkids-feed.pub -s /keys/key-build
+            "
+
+          [ -s keys/dllkids-feed.pub ] || { echo "ERROR: OPKG public key empty"; exit 1; }
+          [ -s keys/dllkids-feed.pub.pem ] || { echo "ERROR: APK public key empty"; exit 1; }
+
+          rclone copy keys/ "b2:${B2_BUCKET}/openwrt-feed/keys/" --checksum --fast-list
+
+          # Upload unified feed indexes
           find merged -mindepth 2 -maxdepth 2 -type d | while read -r dir; do
             sdk=$(basename "$(dirname "$dir")")
             arch=$(basename "$dir")
-            remote="b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}"
-            rclone purge "$remote" || true
-            rclone copy "$dir/" "$remote/" --checksum --fast-list --transfers 8 --checkers 16
+            rclone purge "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}" || true
+            rclone copy "$dir/" "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}/" --checksum --fast-list --transfers 8 --checkers 16
           done
