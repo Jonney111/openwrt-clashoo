@@ -3,7 +3,7 @@ name: Aggregate Unified Feed
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '37 4 * * *'
 
 concurrency:
   group: aggregate-unified-feed
