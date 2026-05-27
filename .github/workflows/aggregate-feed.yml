@@ -84,8 +84,12 @@ jobs:
                 printf "#!/bin/sh\nexec mkhash sha256 \"\$@\"\n" > "$PWD/staging_dir/host/bin/sha256"
                 chmod +x "$PWD/staging_dir/host/bin/sha256"
               fi
-              echo "=== APK version ===" && "$PWD/staging_dir/host/bin/apk" --version || true
-              echo "=== APK mkndx help ===" && "$PWD/staging_dir/host/bin/apk" mkndx --help 2>&1 || true
+              {
+                echo "=== APK version ==="
+                "$PWD/staging_dir/host/bin/apk" --version 2>&1 || true
+                echo "=== sha256sum ==="
+                which sha256sum && sha256sum --version 2>&1 || true
+              } > /work/debug.log 2>&1
 
               SDK_DIR="$PWD"
               for dir in /work/[0-9]*/*; do
@@ -93,21 +97,30 @@ jobs:
                 cd "$dir"
                 apk_count=$(ls ./*.apk 2>/dev/null | wc -l)
                 ipk_count=$(ls ./*.ipk 2>/dev/null | wc -l)
-                echo "==> $dir  APK=$apk_count IPK=$ipk_count"
-                if [ "$apk_count" -gt 0 ]; then
-                  echo "  APK mkndx ..."
-                  "$SDK_DIR/staging_dir/host/bin/apk" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk || echo "  APK FAILED: $?"
-                  ls -la packages.adb* APKINDEX* 2>/dev/null || echo "  NO INDEX FILES"
-                fi
-                if [ "$ipk_count" -gt 0 ]; then
-                  echo "  IPK mkindex ..."
-                  "$SDK_DIR/scripts/ipkg-make-index.sh" . > Packages || echo "  IPK FAILED: $?"
-                  gzip -9nc Packages > Packages.gz
-                  "$SDK_DIR/staging_dir/host/bin/usign" -S -m Packages -s /keys/key-build
-                  ls -la Packages* 2>/dev/null
-                fi
+                {
+                  echo "==> $dir  APK=$apk_count IPK=$ipk_count"
+                  if [ "$apk_count" -gt 0 ]; then
+                    echo "  Running apk mkndx ..."
+                    "$SDK_DIR/staging_dir/host/bin/apk" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk 2>&1 || echo "  FAILED: $?"
+                    ls -la packages.adb* APKINDEX* 2>/dev/null || echo "  NO INDEX FILES"
+                  fi
+                  if [ "$ipk_count" -gt 0 ]; then
+                    echo "  Running ipkg-make-index ..."
+                    "$SDK_DIR/scripts/ipkg-make-index.sh" . > Packages 2>&1 || echo "  FAILED: $?"
+                    gzip -9nc Packages > Packages.gz 2>&1
+                    "$SDK_DIR/staging_dir/host/bin/usign" -S -m Packages -s /keys/key-build 2>&1
+                    ls -la Packages* 2>/dev/null
+                    echo "  IPK done"
+                  fi
+                } >> /work/debug.log 2>&1
               done
+              echo "=== DONE ===" >> /work/debug.log
             '
+
+      - name: Show debug log
+        run: |
+          echo "=== Docker debug log ==="
+          cat merged/debug.log 2>/dev/null || echo "no debug.log found"
 
       - name: Prepare keys and upload
         env:
