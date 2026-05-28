@@ -63,48 +63,26 @@
 - 备份与还原：配置一键导出 / 导入，支持还原出厂默认设置，折腾不怕坏
 - 内核、管理面板、GeoIP / GeoSite 一键下载/更新
 - 镜像源自动回退（自定义 → gh-proxy → 直连 GitHub 兜底）
-- 面板四选一（MetaCubeXD / YACD / Zashboard / Razord）
+- 面板四选一 MetaCubeXD / YACD / Zashboard / Razord
 
 ---
 
 ## 界面预览
 
-![hero](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-hero.png)
-
-<details>
-<summary>展开看每个内核在三种模式下的运行状态</summary>
-
-**Mihomo** ![mihomo](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-mihomo.png)
-
-**Smart** ![smart](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-smart.png)
-
-**Sing-box** ![singbox](https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo-singbox.png)
-
+<details open>
+<summary><b>Desktop Screenshots</b></summary>
+<br>
+<table>
+<tr>
+<td align="center"><b>Mihomo</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-mihomo.png"></td>
+<td align="center"><b>Smart</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-smart.png"></td>
+</tr>
+<tr>
+<td align="center"><b>Sing-box</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-singbox.png"></td>
+<td align="center"><b>System</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo%23system.png"></td>
+</tr>
+</table>
 </details>
-
----
-
-## 仓库结构
-
-```
-clashoo/                              # 运行时包
-├── files/etc/config/clashoo          # UCI 默认配置
-├── files/etc/init.d/clashoo          # 服务启停（procd）
-└── files/usr/share/clashoo/
-    ├── net/                          # nftables 防火墙规则 + 连通性检测
-    ├── runtime/                      # mixin.uc（UCI → YAML 覆盖）+ yq merge
-    ├── lib/                          # ucode 工具 + sing-box JSON 规则化
-    ├── update/                       # 内核 / 面板 / GeoIP 更新脚本
-    └── ruleset/                      # .srs 规则集
-
-luci-app-clashoo/                     # LuCI 前端 + RPC 后端
-├── htdocs/luci-static/
-│   ├── resources/view/clashoo/       # overview / config / system 三大页
-│   └── resources/tools/clashoo.js    # 统一 RPC + toast 通知
-├── po/                               # i18n
-└── root/usr/share/rpcd/ucode/
-    └── luci.clashoo                   # 后端 RPC（60+ 方法）
-```
 
 ---
 
@@ -112,12 +90,16 @@ luci-app-clashoo/                     # LuCI 前端 + RPC 后端
 
 | 包名 | 说明 |
 |------|------|
-| `clashoo` | 运行时包，内置 mihomo 并软链 clash-meta |
-| `luci-app-clashoo` | LuCI 管理界面 |
-| `luci-i18n-clashoo-zh-cn` | 简体中文翻译（可选） |
-| `luci` | OpenWrt Web 界面框架 |
-| `ucode` | 配置生成与规则化运行时 |
+| `ca-bundle` | CA 证书包 |
 | `curl` | 下载 GeoIP / 面板 / 订阅 |
+| `yq` | YAML 处理工具 |
+| `firewall4` | nftables 防火墙 |
+| `ip-full` | 完整 iproute2 |
+| `kmod-inet-diag` | 网络诊断内核模块 |
+| `kmod-nft-socket` | nftables socket 匹配 |
+| `kmod-nft-tproxy` | nftables TPROXY 支持 |
+| `kmod-tun` | TUN 设备支持 |
+| `kmod-dummy` | dummy 网卡模块 |
 
 sing-box 二进制由用户按需安装，或通过「系统 → 内核下载」一键拉取。
 
@@ -141,22 +123,6 @@ wget -O - https://raw.githubusercontent.com/kenzok8/openwrt-clashoo/refs/heads/m
 
 ```bash
 wget --no-check-certificate -O - https://ghfast.top/https://raw.githubusercontent.com/kenzok8/openwrt-clashoo/refs/heads/main/scripts/install.sh | ash
-```
-
-### 持久软件源
-
-添加软件源后，`opkg update` / `apk update` 就能自动拉到 clashoo 新版：
-
-```bash
-wget -qO- https://down.dllkids.xyz/openwrt-feed/openwrt-feed-setup.sh | sh
-```
-
-自动检测 SDK 版本（24.10 opkg / 25.12 apk）与架构，导入稳定签名公钥，写入 `customfeeds.conf` 或 `/etc/apk/repositories`。装好之后：
-
-```bash
-opkg update && opkg install clashoo luci-app-clashoo luci-i18n-clashoo-zh-cn
-# 或
-apk update && apk add clashoo luci-app-clashoo luci-i18n-clashoo-zh-cn
 ```
 
 ### Release 手动安装

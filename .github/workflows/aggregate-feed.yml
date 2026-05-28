@@ -3,11 +3,11 @@ name: Aggregate Unified Feed
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '37 4 * * *'
 
 concurrency:
   group: aggregate-unified-feed
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,7 +24,6 @@ jobs:
           B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
         run: |
           [ -z "$B2_KEY_ID" ] && { echo "No B2 credentials"; exit 1; }
-          [ -z "$B2_APPLICATION_KEY" ] && { echo "No B2 application key"; exit 1; }
           curl -fsSL https://rclone.org/install.sh | sudo bash
           mkdir -p ~/.config/rclone
           cat > ~/.config/rclone/rclone.conf <<EOF
@@ -68,45 +67,98 @@ jobs:
           [ -z "$PRIVATE_KEY" ] && { echo "No APK signing key"; exit 1; }
           printf '%s\n' "$KEY_BUILD" > key-build
           printf '%s\n' "$PRIVATE_KEY" > private-key.pem
+          chmod -R a+w merged/
 
           git clone --depth 1 https://github.com/openwrt/gh-action-sdk.git sdk-action
-          docker build -t openwrt-sdk-tools --build-arg ARCH=x86_64-openwrt-25.12 sdk-action
-          docker run --rm --entrypoint bash \
+          docker build -t sdk-tools --build-arg ARCH=x86_64-openwrt-25.12 sdk-action
+          docker run --rm --user root --entrypoint bash \
             -v "$PWD/merged":/work \
             -v "$PWD/key-build":/keys/key-build:ro \
             -v "$PWD/private-key.pem":/keys/private-key.pem:ro \
-            openwrt-sdk-tools -lc '
+            sdk-tools -c '
               set -eu
-              cd /builder 2>/dev/null || cd "$(find / -path "*/scripts/ipkg-make-index.sh" -type f 2>/dev/null | head -n 1 | sed "s#/scripts/ipkg-make-index.sh##")"
-              [ ! -f setup.sh ] || bash setup.sh
-              apk_bin="$PWD/staging_dir/host/bin/apk"
-              usign_bin="$PWD/staging_dir/host/bin/usign"
-              ipkg_index="$PWD/scripts/ipkg-make-index.sh"
-
-              for dir in /work/*/*; do
+              mkdir -p /artifacts && chmod 777 /artifacts
+              bash setup.sh
+              export PATH="$PWD/staging_dir/host/bin:$PATH"
+              if [ ! -x "$PWD/staging_dir/host/bin/sha256" ]; then
+                printf "#!/bin/sh\nexec mkhash sha256 \"\$@\"\n" > "$PWD/staging_dir/host/bin/sha256"
+                chmod +x "$PWD/staging_dir/host/bin/sha256"
+              fi
+              SDK_DIR="$PWD"
+              for dir in /work/[0-9]*/*; do
                 [ -d "$dir" ] || continue
                 cd "$dir"
-                if ls ./*.apk >/dev/null 2>&1; then
+                apk_count=$(ls ./*.apk 2>/dev/null | wc -l)
+                ipk_count=$(ls ./*.ipk 2>/dev/null | wc -l)
+                echo "==> $dir  APK=$apk_count IPK=$ipk_count"
+                if [ "$apk_count" -gt 0 ]; then
                   rm -f packages.adb packages.adb.* APKINDEX*
-                  "$apk_bin" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk
+                  "$SDK_DIR/staging_dir/host/bin/apk" mkndx --allow-untrusted --sign-key /keys/private-key.pem --output packages.adb ./*.apk
+                  echo "  APK: packages.adb $(wc -c < packages.adb) bytes"
                 fi
-                if ls ./*.ipk >/dev/null 2>&1; then
+                if [ "$ipk_count" -gt 0 ]; then
                   rm -f Packages Packages.gz Packages.sig
-                  "$ipkg_index" . > Packages
+                  "$SDK_DIR/scripts/ipkg-make-index.sh" . > Packages
                   gzip -9nc Packages > Packages.gz
-                  "$usign_bin" -S -m Packages -s /keys/key-build
+                  "$SDK_DIR/staging_dir/host/bin/usign" -S -m Packages -s /keys/key-build
+                  echo "  IPK: Packages.gz $(wc -c < Packages.gz) bytes, signed"
                 fi
               done
             '
 
-      - name: Upload unified feed
+      - name: Prepare keys and upload
+        env:
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          OPKG_PUB_KEY: ${{ secrets.OPKG_PUB_KEY }}
+          APK_PUB_KEY: ${{ secrets.APK_PUB_KEY }}
+        run: |
+          set -euo pipefail
+          echo "=== Index files generated ==="
+          find merged \( -name "packages.adb" -o -name "Packages.gz" -o -name "Packages.sig" \) | sort
+          mkdir -p merged/keys
+          printf '%s\n' "$OPKG_PUB_KEY" > merged/keys/dllkids-feed.pub
+          printf '%s\n' "$APK_PUB_KEY" > merged/keys/dllkids-feed.pub.pem
+
+          rclone copy merged/keys/ "b2:${B2_BUCKET}/openwrt-feed/keys/" --checksum --fast-list
+
+          dirs=()
+          while IFS= read -r d; do dirs+=("$d"); done < <(find merged -mindepth 2 -maxdepth 2 -type d)
+          for dir in "${dirs[@]}"; do
+            sdk=$(basename "$(dirname "$dir")")
+            arch=$(basename "$dir")
+            [ "$sdk" = "keys" ] && continue
+            echo "Uploading ${sdk}/${arch} ..."
+            rclone sync "$dir/" "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}/" --checksum --fast-list --transfers 8 --checkers 16
+            echo "  -> done"
+          done
+
+      - name: Verify B2 upload
         env:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
         run: |
-          find merged -mindepth 2 -maxdepth 2 -type d | while read -r dir; do
+          set -euo pipefail
+          echo "Checking keys ..."
+          rclone lsf "b2:${B2_BUCKET}/openwrt-feed/keys/" --files-only > /dev/null || { echo "FAIL: no keys"; exit 1; }
+          echo "  -> OK"
+
+          fail=0
+          for dir in merged/*/*; do
+            [ -d "$dir" ] || continue
             sdk=$(basename "$(dirname "$dir")")
             arch=$(basename "$dir")
-            remote="b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}"
-            rclone purge "$remote" || true
-            rclone copy "$dir/" "$remote/" --checksum --fast-list --transfers 8 --checkers 16
+            [ "$sdk" = "keys" ] && continue
+
+            echo "Checking ${sdk}/${arch} ..."
+            if rclone lsf "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}/" --files-only > /dev/null 2>&1; then
+              echo "  -> OK"
+            else
+              echo "  -> FAIL"
+              fail=1
+            fi
           done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Verification FAILED"
+            exit 1
+          fi
+          echo "All B2 paths verified OK"
