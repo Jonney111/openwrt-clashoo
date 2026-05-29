@@ -125,19 +125,22 @@ wget -O - https://raw.githubusercontent.com/kenzok8/openwrt-clashoo/refs/heads/m
 wget --no-check-certificate -O - https://ghfast.top/https://raw.githubusercontent.com/kenzok8/openwrt-clashoo/refs/heads/main/scripts/install.sh | ash
 ```
 
-### Release 手动安装
+### 软件源安装
+
+在 OpenWrt 路由器上执行以下命令：
 
 ```bash
-# opkg
-opkg install clashoo_*.ipk
-opkg install luci-app-clashoo_*.ipk
-opkg install luci-i18n-clashoo-zh-cn_*.ipk
-
-# apk
-apk add --allow-untrusted clashoo_*.apk
-apk add --allow-untrusted luci-app-clashoo_*.apk
-apk add --allow-untrusted luci-i18n-clashoo-zh-cn_*.apk
+wget -qO- https://down.dllkids.xyz/openwrt-feed/openwrt-feed-setup.sh | sh
 ```
+
+脚本自动完成：
+
+- ✅ 检测 SDK 版本（24.10 / 25.12）与处理器架构
+- ✅ 检测该架构 feed 是否存在（覆盖 `Packages.gz` / `APKINDEX.tar.gz` / `packages.adb` 三类索引），缺则回退 `all`
+- ✅ 下载对应公钥，opkg → `opkg-key add`；apk → 放入 `/etc/apk/keys/`
+- ✅ 写入/更新源配置（`customfeeds.conf` 或 `/etc/apk/repositories`），不会重复堆积
+- ✅ 执行 `opkg update` / `apk update`，签名校验失败时自动回退 `--allow-untrusted`
+- ✅ `apk update && apk add clashoo luci-app-clashoo`
 
 ### 源码编译
 
