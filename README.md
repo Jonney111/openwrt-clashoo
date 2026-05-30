@@ -26,6 +26,25 @@
 
 ---
 
+## 界面预览
+
+<details open>
+<summary><b>Desktop Screenshots</b></summary>
+<br>
+<table>
+<tr>
+<td align="center"><b>Mihomo</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-mihomo.png"></td>
+<td align="center"><b>Smart</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-smart.png"></td>
+</tr>
+<tr>
+<td align="center"><b>Sing-box</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-singbox.png"></td>
+<td align="center"><b>System</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo%23system.png"></td>
+</tr>
+</table>
+</details>
+
+---
+
 ## 功能特性
 
 **双内核，一个界面**
@@ -64,25 +83,6 @@
 - 内核、管理面板、GeoIP / GeoSite 一键下载/更新
 - 镜像源自动回退（自定义 → gh-proxy → 直连 GitHub 兜底）
 - 面板四选一 MetaCubeXD / YACD / Zashboard / Razord
-
----
-
-## 界面预览
-
-<details open>
-<summary><b>Desktop Screenshots</b></summary>
-<br>
-<table>
-<tr>
-<td align="center"><b>Mihomo</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-mihomo.png"></td>
-<td align="center"><b>Smart</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-smart.png"></td>
-</tr>
-<tr>
-<td align="center"><b>Sing-box</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo-singbox.png"></td>
-<td align="center"><b>System</b><br><img width="400" src="https://raw.githubusercontent.com/kenzok8/kenzok8/main/screenshot/clashoo/clashoo%23system.png"></td>
-</tr>
-</table>
-</details>
 
 ---
 
