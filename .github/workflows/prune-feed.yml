@@ -49,4 +49,4 @@ jobs:
           KEEP: ${{ github.event.inputs.keep || '1' }}
           # Scheduled runs delete for real; manual runs default to dry-run.
           DRY: ${{ github.event_name == 'schedule' && '0' || (github.event.inputs.dry_run == 'false' && '0' || '1') }}
-        run: bash tools/prune-feed.sh
+        run: bash .github/workflows/prune-feed.sh
