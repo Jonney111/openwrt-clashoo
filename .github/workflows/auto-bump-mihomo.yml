@@ -88,6 +88,15 @@ jobs:
           git add clashoo/Makefile
           git diff --cached --quiet && { echo "No changes"; exit 0; }
           git commit -m "chore: bump mihomo to alpha-${{ needs.get_latest_info.outputs.short_sha }}"
-          git push origin HEAD:main
+          # main 可能在 checkout 之后被其它推送推进，直接 push 会 non-fast-forward 失败。
+          # push 前 rebase 重试若干次（bump 仅改 clashoo/Makefile，rebase 到最新 main 不会冲突）。
+          pushed=0
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then pushed=1; break; fi
+            echo "push 被拒（第 $i 次），拉取 rebase 后重试…"
+            git pull --rebase origin main || { echo "rebase 失败"; exit 1; }
+            sleep 3
+          done
+          [ "$pushed" = 1 ] || { echo "推送多次仍失败"; exit 1; }
           # 新内核已推送，触发 release.yml 自动编译并发布
           gh workflow run release.yml -f prerelease=false

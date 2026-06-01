@@ -1,0 +1,52 @@
+name: Prune feed (keep newest)
+
+# Trim duplicate package/firmware versions on the B2 feed so they stop piling up.
+# Keeps only the newest build of each package and firmware variant.
+# Does NOT touch the package index — the daily aggregate-feed run (04:37 UTC)
+# rebuilds and re-signs it; this job runs ~32 min earlier so the index refreshes
+# the same day with the pruned set.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list only, delete nothing)"
+        type: boolean
+        default: true
+      keep:
+        description: "Newest builds to keep per package/firmware"
+        type: string
+        default: "1"
+  schedule:
+    - cron: "5 4 * * *"   # daily 04:05 UTC (~12:05 Beijing), just before aggregate-feed
+
+concurrency:
+  group: prune-feed
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rclone
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone (B2)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [b2]
+          type = b2
+          account = ${{ secrets.B2_KEY_ID }}
+          key = ${{ secrets.B2_APPLICATION_KEY }}
+          EOF
+
+      - name: Prune
+        env:
+          REMOTE: "b2:${{ secrets.B2_BUCKET }}"
+          KEEP: ${{ github.event.inputs.keep || '1' }}
+          # Scheduled runs delete for real; manual runs default to dry-run.
+          DRY: ${{ github.event_name == 'schedule' && '0' || (github.event.inputs.dry_run == 'false' && '0' || '1') }}
+        run: bash .github/workflows/prune-feed.sh
