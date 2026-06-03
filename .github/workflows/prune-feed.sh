@@ -41,12 +41,23 @@ prune_one() {
   # directory keep the newest KEEP and list the rest for deletion.
   awk -F'\t' -v OFS='\t' '
     function key(dir, fn,   a,n,i,k,t) {
-      # package:  name_version_arch.ext  ->  drop the version (2nd "_" field).
+      # ipk:  name_version_arch.ipk  ->  drop the version (2nd "_" field).
       # pkg name and version never contain "_"; arch may, so rejoin 3..NF.
-      if (fn ~ /\.(ipk|apk)$/) {
+      if (fn ~ /\.ipk$/) {
         n = split(fn, a, "_")
         if (n >= 3) { k = a[1]; for (i = 3; i <= n; i++) k = k "_" a[i]; return dir SUBSEP k }
         return dir SUBSEP fn
+      }
+      # apk:  name-version[-rRELEASE].apk  ->  strip ".apk", optional "-rN", then "-version".
+      # apk version cannot contain "-"; name can. Works for both naming styles:
+      #   clashoo-2026.06.03~316f5df-r1.apk        -> clashoo
+      #   luci-app-adguardhome-27.147.35947~a57e622.apk -> luci-app-adguardhome
+      if (fn ~ /\.apk$/) {
+        t = fn
+        sub(/\.apk$/, "", t)
+        sub(/-r[0-9]+$/, "", t)
+        sub(/-[^-]+$/, "", t)
+        return dir SUBSEP t
       }
       # firmware image:  MM.DD-...  or  YYYYMMDD-...  ->  strip the leading date.
       if (fn ~ /\.img\.gz$/ || fn ~ /\.img$/ || fn ~ /\.bin$/) {
