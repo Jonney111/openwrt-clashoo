@@ -393,84 +393,22 @@ return '';
 function format_core_log(content) {
 content = content || '';
 let out = ['=== 核心日志 ==='];
-let dropped = 0;
-let max_lines = 120;
+// No server-side noise filtering: the UI level dropdown (全部/INFO/WARN/ERROR/FATAL)
+// is the single filter, so "全部" really means all. Keep a generous cap so errors
+// aren't pushed out by connection chatter.
+let max_lines = 400;
 
 for (let line in split(content, '\n')) {
 line = replace(line || '', /\x1b\[[0-9;]*m/g, '');
 line = trim(line || '');
 if (!line) continue;
 
-let low = lc(line);
-let noisy =
-	index(low, 'level=debug') >= 0 ||
-	index(low, '[debug]') >= 0 ||
-	index(low, 'accepted ') >= 0 ||
-	index(low, 'closed ') >= 0 ||
-	index(low, 'connection closed') >= 0 ||
-	index(low, 'connection: open connection to') >= 0 ||
-	index(low, 'using outbound/') >= 0 ||
-	index(low, 'lookup ') >= 0 ||
-	index(low, 'context deadline exceeded') >= 0 ||
-	index(low, 'outbound connection to') >= 0 ||
-	index(low, 'outbound packet connection') >= 0 ||
-	index(low, 'inbound connection from') >= 0 ||
-	index(low, 'inbound connection to') >= 0 ||
-	index(low, 'inbound packet connection') >= 0 ||
-	index(low, 'inbound/mixed') >= 0 ||
-	index(low, 'inbound/tun') >= 0 ||
-	index(low, 'inbound/tproxy') >= 0 ||
-	index(low, 'inbound/redirect') >= 0 ||
-	index(low, 'outbound/direct') >= 0 ||
-	index(low, 'outbound/selector') >= 0 ||
-	index(low, 'outbound/shadowsocks') >= 0 ||
-	index(low, 'outbound/trojan') >= 0 ||
-	index(low, 'outbound/vmess') >= 0 ||
-	index(low, 'outbound/vless') >= 0 ||
-	index(low, 'outbound/hysteria') >= 0 ||
-	index(low, 'outbound/urltest') >= 0 ||
-	index(low, 'dns: exchanged') >= 0 ||
-	index(low, 'dns query') >= 0 ||
-	index(low, 'exchange ') >= 0 ||
-	index(low, 'download detour') >= 0 ||
-	index(low, 'router: match') >= 0 ||
-	index(low, 'route: match') >= 0 ||
-	index(low, 'dial_parallel') >= 0 ||
-	index(low, 'msg="[tcp]') >= 0 ||
-	index(low, 'msg="[udp]') >= 0;
-
-let important =
-	index(low, 'level=warning') >= 0 ||
-	index(low, 'level=error') >= 0 ||
-	index(low, 'level=fatal') >= 0 ||
-	index(low, '[warn]') >= 0 ||
-	index(low, '[error]') >= 0 ||
-	index(low, '[fatal]') >= 0 ||
-	index(low, 'fatal') >= 0 ||
-	index(low, 'error') >= 0 ||
-	index(low, 'warn') >= 0 ||
-	index(low, 'failed') >= 0 ||
-	index(low, 'timeout') >= 0 ||
-	index(low, 'refused') >= 0 ||
-	index(low, 'listen') >= 0 ||
-	index(low, 'server started') >= 0 ||
-	index(low, 'started (') >= 0 ||
-	index(low, 'restful api') >= 0 ||
-	index(low, 'updated default interface') >= 0 ||
-	index(low, 'deprecated') >= 0;
-
-	if (noisy && !important) {
-		dropped++;
-		continue;
-	}
-
 push(out, reformat_core_line(line));
 if (length(out) > max_lines + 1) shift(out);
 }
 
 	if (length(out) == 1)
-		push(out, '暂无核心异常');
-	if (dropped > 0) push(out, '--- 已过滤 ' + dropped + ' 行 ---');
+		push(out, '暂无核心日志');
 	return join('\n', out);
 }
 
