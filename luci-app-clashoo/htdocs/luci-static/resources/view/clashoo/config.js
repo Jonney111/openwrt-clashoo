@@ -996,8 +996,9 @@ return view.extend({
     o.description = '阻止国内 DNS 解析国外域名、关闭 IPv6 解析、阻断 DoT/DoQ（853 端口）。切换后需重启服务生效。<br>' +
                     '<strong>注意：</strong>开启后 IPv6 网站只能通过 IPv4 访问，纯 IPv6 网络下可能无法上网。';
     o = s.option(form.Flag, 'core_only', '仅内核（进阶）');
-    o.description = '只运行你导入的配置，不接管防火墙 / DNS / 路由。mihomo 配置原样运行，适配 nikki、OpenClash；sing-box 老配置自动迁移格式，兼容 momo、homeproxy。<br>' +
-                    '<strong>前提：</strong>配置需自带透明代理（TUN auto-route 或 TProxy 入站），否则流量不会走代理。切换后需重启生效。';
+    o.description = '只用你导入的配置跑内核，不接管防火墙 / DNS / 路由。<br>' +
+                    'mihomo 原样运行，适配 nikki、OpenClash；sing-box 自动升级老格式，兼容 momo、homeproxy。<br>' +
+                    '<strong>前提：</strong>配置自带透明代理（TUN / TProxy），切换后需重启生效。';
 
     s = m.section(form.NamedSection, 'config', 'clashoo', '端口配置');
     s.addremove = false;
