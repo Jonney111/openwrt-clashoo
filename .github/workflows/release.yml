@@ -99,6 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
       - uses: actions/checkout@v6
@@ -258,9 +259,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          # 仅保留最新 6 个 release，其余连同 tag 一并删除
+          # Keep newest 6; exclude mihomo-src (hosts the pinned source tarball).
           gh release list -R "$REPO" --limit 100 --json tagName,createdAt \
-            --jq 'sort_by(.createdAt) | reverse | .[6:] | .[].tagName' > old_tags.txt
+            --jq 'map(select(.tagName != "mihomo-src")) | sort_by(.createdAt) | reverse | .[6:] | .[].tagName' > old_tags.txt
           if [ ! -s old_tags.txt ]; then
             echo "Releases <= 6, nothing to prune."
             exit 0
@@ -270,6 +271,14 @@ jobs:
             echo "Deleting release & tag: $tag"
             gh release delete "$tag" -R "$REPO" --yes --cleanup-tag
           done < old_tags.txt
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
 
   upload_feed:
     name: Upload Feed to B2
