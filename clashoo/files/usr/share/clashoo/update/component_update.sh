@@ -293,8 +293,11 @@ clashoo_was_running() {
 }
 
 restart_web_stack() {
-  /etc/init.d/rpcd restart >/dev/null 2>&1 || true
-  /etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+  # reload (not restart) rpcd so the LuCI login session survives a plugin
+  # update — rpcd restart drops every ubus session and forces a re-login
+  # (issue #12). reload still picks up the new ucode RPC backend. uhttpd needs
+  # nothing: updated static assets are served on the next request.
+  /etc/init.d/rpcd reload >/dev/null 2>&1 || true
 }
 
 # which: clashoo（仅核心）/ luci（luci-app + 语言包）。两者拆开，clashoo
@@ -354,8 +357,13 @@ run_pkg_update() {
     finish "$rc" "组件更新失败"
   fi
 
-  log "正在刷新 LuCI 服务"
-  restart_web_stack
+  # Only a luci-app update touches /www and the rpcd backend, so only then
+  # refresh the web stack. The clashoo core package ships no web files — a
+  # web-stack refresh there is pointless churn that just disturbs the UI.
+  if [ "$which" = "luci" ]; then
+    log "正在刷新 LuCI 服务"
+    restart_web_stack
+  fi
   # 仅核心更新且原本运行中才重启 Clashoo；纯客户端更新不动服务
   if [ "$which" = "clashoo" ] && [ "$was_running" -eq 1 ]; then
     log "Clashoo 原本运行中，正在重启服务"
