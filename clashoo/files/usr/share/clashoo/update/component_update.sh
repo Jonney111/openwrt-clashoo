@@ -371,15 +371,12 @@ run_core_update() {
   dcore="$1"
   label="$2"
   log "正在更新 ${label}"
-  uci set clashoo.config.dcore="$dcore" >/dev/null 2>&1
-  if [ "$dcore" = "4" ] || [ "$dcore" = "5" ]; then
-    uci set clashoo.config.core_type='singbox' >/dev/null 2>&1
-  else
-    uci set clashoo.config.core_type='mihomo' >/dev/null 2>&1
-  fi
-  uci commit clashoo >/dev/null 2>&1
+  # Pass the target as an arg so core_download refreshes only that binary
+  # without switching the active kernel. It restarts only if the target is the
+  # currently-running core (see core_download.sh finalize). Switching kernels
+  # stays a separate, explicit user action.
   touch /var/run/core_update
-  sh /usr/share/clashoo/update/core_download.sh >>/tmp/clash_update.txt 2>&1
+  sh /usr/share/clashoo/update/core_download.sh "$dcore" >>/tmp/clash_update.txt 2>&1
   rc=$?
   rm -f /var/run/core_update
   [ "$rc" -eq 0 ] || finish "$rc" "${label} 更新失败"
