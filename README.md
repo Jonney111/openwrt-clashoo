@@ -183,6 +183,7 @@ wget --no-check-certificate -O - https://ghfast.top/https://raw.githubuserconten
 ./scripts/test_singbox_dns_normalize.sh # sing-box 规则化测试
 ./scripts/test_initd_clash.sh           # init.d 守卫检查
 ./scripts/test_yaml2singbox.sh          # YAML → JSON 转换测试
+./tests/test_subscription_update.sh     # 订阅更新与定时任务测试
 ```
 
 ---

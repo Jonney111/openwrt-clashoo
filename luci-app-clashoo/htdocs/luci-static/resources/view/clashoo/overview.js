@@ -147,7 +147,7 @@ var CSS = [
   '@media(max-width:480px){.cl-cards{grid-template-columns:1fr}.cl-controls{grid-template-columns:1fr}.cl-live-grid{grid-template-columns:1fr}}'
 ].join('');
 
-var callDownloadSubs = rpc.declare({ object: 'luci.clashoo', method: 'download_subs', expect: {} });
+var callUpdateCurrentSubscription = rpc.declare({ object: 'luci.clashoo', method: 'update_current_subscription', expect: {} });
 var callOverview = rpc.declare({ object: 'luci.clashoo', method: 'overview', expect: {} });
 var callProxiesList = rpc.declare({ object: 'luci.clashoo', method: 'proxies_list', expect: {} });
 var callProxySelect = rpc.declare({ object: 'luci.clashoo', method: 'proxy_select', params: ['group', 'name'], expect: {} });
@@ -1930,8 +1930,13 @@ return view.extend({
   _restart: function () { return this._svc(function () { return clashoo.restart(); }, 'restart'); },
 
   _updSubs: function () {
-    return L.resolveDefault(callDownloadSubs(), {}).then(function (r) {
-      ui.addNotification(null, E('p', r.success ? '订阅更新成功' : ('更新失败: ' + (r.message || '未知错误'))));
+    return L.resolveDefault(callUpdateCurrentSubscription(), {}).then(function (r) {
+      if (r && r.reason === 'not_subscription') {
+        ui.addNotification(null, E('p', '当前配置为自定义文件，无需更新订阅'), 'info');
+        return;
+      }
+      ui.addNotification(null, E('p', r.success ? (r.message || '订阅更新成功')
+        : ('更新失败: ' + (r.message || '当前配置未记录订阅链接'))));
     });
   },
 
