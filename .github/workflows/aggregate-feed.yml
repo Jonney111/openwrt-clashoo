@@ -128,7 +128,7 @@ jobs:
             arch=$(basename "$dir")
             [ "$sdk" = "keys" ] && continue
             echo "Uploading ${sdk}/${arch} ..."
-            rclone sync "$dir/" "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}/" --checksum --fast-list --transfers 8 --checkers 16
+            rclone sync "$dir/" "b2:${B2_BUCKET}/openwrt-feed/${sdk}/${arch}/" --checksum --fast-list --transfers 8 --checkers 16 --b2-hard-delete
             echo "  -> done"
           done
 
