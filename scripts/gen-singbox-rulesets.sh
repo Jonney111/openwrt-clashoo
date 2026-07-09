@@ -7,6 +7,8 @@ RULESET_DIR="${ROOT_DIR}/clashoo/files/usr/share/clashoo/ruleset"
 TMP_DIR="$(mktemp -d)"
 GEOSITE_BASE="${GEOSITE_BASE:-https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite}"
 GEOIP_BASE="${GEOIP_BASE:-https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip}"
+# mihomo .mrs lives on the meta branch (binary, not .srs)
+META_GEOSITE_BASE="${META_GEOSITE_BASE:-https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite}"
 
 cleanup() {
 	rm -rf "$TMP_DIR"
@@ -42,5 +44,14 @@ fetch_ruleset "geolocation-!cn" "$GEOSITE_BASE"
 fetch_ruleset "geosite-cn" "$GEOSITE_BASE" geolocation-cn
 fetch_ruleset "private-ip" "$GEOIP_BASE" private
 fetch_ruleset "cn-ip" "$GEOIP_BASE" cn
+
+# mihomo cn.mrs replaces geosite:cn in fake-ip-filter so the core skips geosite.dat
+echo "fetch cn.mrs"
+curl -fsSL --retry 3 --retry-delay 2 "${META_GEOSITE_BASE}/cn.mrs" -o "${TMP_DIR}/cn.mrs"
+[ -s "${TMP_DIR}/cn.mrs" ] || {
+	echo "empty ruleset: ${META_GEOSITE_BASE}/cn.mrs" >&2
+	exit 1
+}
+mv "${TMP_DIR}/cn.mrs" "${RULESET_DIR}/cn.mrs"
 
 echo "generated sing-box rule sets in ${RULESET_DIR}"

@@ -30,7 +30,7 @@ function getThemeClass() {
 }
 
 var CSS = [
-  '.cl-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;--cl-card-border:rgba(128,128,128,.22);--cl-card-bg:rgba(128,128,128,.08);--cl-card-shadow:0 4px 12px rgba(0,0,0,.08);--cl-muted:rgba(92,102,120,.72);--cl-meta:var(--cl-muted);--cl-primary:rgba(0,122,255,.8);--cl-primary-border:rgba(0,122,255,.45);--cl-primary-soft:rgba(0,122,255,.08)}',
+  '.cl-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;--cl-card-border:rgba(128,128,128,.22);--cl-card-bg:rgba(128,128,128,.08);--cl-card-shadow:0 4px 12px rgba(0,0,0,.08);--cl-muted:rgba(74,85,104,.9);--cl-meta:var(--cl-muted);--cl-primary:rgba(0,122,255,.8);--cl-primary-border:rgba(0,122,255,.45);--cl-primary-soft:rgba(0,122,255,.08)}',
   '.cl-tabs{display:flex;border-bottom:2px solid rgba(128,128,128,.15);margin-bottom:18px}',
   '.cl-tab{padding:10px 20px;cursor:pointer;font-size:13px;opacity:.55;border-bottom:2px solid transparent;margin-bottom:-2px;transition:opacity .15s}',
   '.cl-tab.active{opacity:1;border-bottom-color:currentColor;font-weight:600}',
@@ -91,7 +91,7 @@ var CSS = [
   '.cl-sub-schedule-interval{display:inline-flex;align-items:center;gap:6px;height:30px;font-size:12px;line-height:30px;color:var(--cl-meta);white-space:nowrap}',
   '.cl-sub-schedule-interval input[type="number"]{width:52px!important;height:30px!important;min-height:30px!important;box-sizing:border-box!important;margin:0!important;padding:2px 6px!important;line-height:24px!important;text-align:center}',
   '.cl-sub-schedule-row .btn,.cl-sub-schedule-row .cbi-button{height:30px!important;min-height:30px!important;box-sizing:border-box!important;padding:3px 10px!important;line-height:22px!important}',
-  '.cl-sub-schedule-row :disabled{cursor:not-allowed;opacity:.48}',
+  '.cl-sub-schedule-row :disabled{cursor:not-allowed;opacity:.62}',
   '.cl-section-toggle{font-size:12px;cursor:pointer;flex-shrink:0;margin-left:auto}',
   '.cl-collapsible.cl-closed>*:not(h3){display:none!important}',
   /* 折叠标题：通过 .clashoo-section-header wrapper class 上色，不裸改 LuCI 默认 h3 样式 */
@@ -151,7 +151,7 @@ var callSubscriptionUpdateStatus = rpc.declare({ object: 'luci.clashoo', method:
 var callSetSubscriptionUpdateSchedule = rpc.declare({ object: 'luci.clashoo', method: 'set_subscription_update_schedule', params: ['enabled', 'interval'], expect: {} });
 var callSetConfig     = rpc.declare({ object: 'luci.clashoo', method: 'set_config',          params: ['name'], expect: {} });
 var callDeleteCfg     = rpc.declare({ object: 'luci.clashoo', method: 'delete_config',       params: ['name', 'type'], expect: {} });
-var callUploadConfig  = rpc.declare({ object: 'luci.clashoo', method: 'upload_config',       params: ['name', 'content', 'type'], expect: {} });
+var callUploadConfigChunk = rpc.declare({ object: 'luci.clashoo', method: 'upload_config_chunk', params: ['name', 'content', 'type', 'index', 'total'], expect: {} });
 var callReadOtherConfig = rpc.declare({ object: 'luci.clashoo', method: 'read_other_config',  params: ['name', 'type'], expect: {} });
 var callListTemplates = rpc.declare({ object: 'luci.clashoo', method: 'list_templates',      expect: {} });
 var callUploadTemplate= rpc.declare({ object: 'luci.clashoo', method: 'upload_template',     params: ['name', 'content'], expect: {} });
@@ -170,6 +170,24 @@ function fastResolve(promise, timeoutMs, fallback) {
     setTimeout(function () { resolve(fallback); }, timeoutMs);
   });
   return Promise.race([L.resolveDefault(promise, fallback), t]);
+}
+
+function uploadConfigContent(name, content, type) {
+  var chunkSize = 24576;
+  var total = Math.max(1, Math.ceil((content || '').length / chunkSize));
+  var index = 0;
+
+  function sendNext() {
+    var chunk = (content || '').slice(index * chunkSize, (index + 1) * chunkSize);
+    return L.resolveDefault(callUploadConfigChunk(name, chunk, type || '2', index, total), {}).then(function (r) {
+      if (!r || !r.success)
+        throw new Error((r && (r.message || r.error)) || '上传失败');
+      index++;
+      return index < total ? sendNext() : r;
+    });
+  }
+
+  return sendNext();
 }
 
 function loadUiState() {
@@ -857,9 +875,11 @@ return view.extend({
       if (!file) return;
       var reader = new FileReader();
       reader.onload = function (e) {
-        L.resolveDefault(callUploadConfig(file.name, e.target.result, '2'), {}).then(function (r) {
-          ui.addNotification(null, E('p', r.success ? '上传成功: ' + r.name : '上传失败'));
+        uploadConfigContent(file.name, e.target.result, '2').then(function (r) {
+          ui.addNotification(null, E('p', '上传成功: ' + r.name));
           location.reload();
+        }).catch(function (err) {
+          ui.addNotification(null, E('p', '上传失败: ' + (err && err.message ? err.message : err)));
         });
       };
       reader.readAsText(file);
@@ -963,9 +983,11 @@ return view.extend({
       click: function () {
         var meta = otherEd.textarea.dataset;
         if (!meta.name) return;
-        L.resolveDefault(callUploadConfig(meta.name, otherEd.getValue(), meta.type), {}).then(function (r) {
+        uploadConfigContent(meta.name, otherEd.getValue(), meta.type).then(function (r) {
           if (r && r.success) ui.addNotification(null, E('p', meta.name + ' 已保存'));
           else ui.addNotification(null, E('p', '保存失败: ' + ((r && (r.message || r.error)) || '')));
+        }).catch(function (err) {
+          ui.addNotification(null, E('p', '保存失败: ' + (err && err.message ? err.message : err)));
         });
       }
     }, '保存');
@@ -1392,7 +1414,7 @@ return view.extend({
 
     o = s.option(form.DynamicList, 'fake_ip_filter',    'Fake-IP 过滤域名');
     o.placeholder = '*.lan / geosite:cn / RULE-SET,cn_domain,real-ip';
-    o.description = '黑名单/白名单模式：填域名或 <code>geosite:cn</code> 简写。规则模式：填 <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code> 这种与 rules 同语法的条目，末尾通常加一条 <code>MATCH,fake-ip</code> 兜底。';
+    o.description = '黑名单/白名单模式：填域名或 <code>geosite:cn</code> 简写。规则模式：填 <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code> 这种与 rules 同语法的条目，末尾通常加一条 <code>MATCH,fake-ip</code> 兜底。填 <code>geosite:cn</code> 会自动改用内置 cn.mrs 加速，免加载 10MB geosite.dat。';
     o.depends('enhanced_mode', 'fake-ip');
     o.remove = function () {};
     o = s.option(form.DynamicList, 'default_nameserver', 'Bootstrap DNS');
