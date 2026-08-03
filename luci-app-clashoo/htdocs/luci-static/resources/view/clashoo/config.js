@@ -136,6 +136,7 @@ var CSS = [
   '@media(max-width:680px){.cl-wrap{--cl-meta:#4b5870}.cl-sub-list.cl-sb-list td:first-child{white-space:normal;overflow:visible;text-overflow:clip}}',
   '@media(max-width:680px){.cl-file-name-text,.cl-file-size,.cl-sub-traffic,.cl-sub-expire,.cl-sb-list td,.cl-sb-size,.cl-dns-auto-status,.cl-dns-auto-result{color:#4b5870!important}}',
   '@media(max-width:680px){html body .cl-wrap .cl-file-item .cl-file-meta .cl-file-size{color:#4b5870!important}}',
+  '@media(max-width:680px){.cl-file-item{flex-direction:column;align-items:stretch;gap:8px}.cl-file-meta{flex-direction:column;align-items:stretch;gap:6px}.cl-file-name-text{white-space:normal;overflow-wrap:anywhere}.cl-file-actions{justify-content:flex-end}.cl-sub-expire,.cl-sub-traffic{white-space:normal}}',
   '@media(max-width:680px){.cl-form-wrap{max-width:100%}}',
   '@media(max-width:680px){.cl-dns-auto,.cl-dns-auto-result{max-width:100%;width:100%;box-sizing:border-box}.cl-dns-auto-result{grid-template-columns:1fr}}',
   '@media(max-width:680px){.cl-sub-schedule{width:100%;padding:8px 0 4px 4px}.cl-sub-schedule-row{gap:8px;flex-wrap:wrap}.cl-sub-schedule-toggle{width:100%}.cl-sub-schedule-interval{gap:5px}.cl-sub-schedule-row .cbi-button-action{white-space:nowrap}}'
@@ -159,9 +160,6 @@ var callApplyRewrite  = rpc.declare({ object: 'luci.clashoo', method: 'apply_rew
 var callFetchUrl      = rpc.declare({ object: 'luci.clashoo', method: 'fetch_rewrite_url',      params: ['url','name'], expect: {} });
 var callApplyTplUrl   = rpc.declare({ object: 'luci.clashoo', method: 'apply_template_with_url', params: ['template_source','sub_url','output_name','set_active'], expect: {} });
 var callMigrateSbProfile = rpc.declare({ object: 'luci.clashoo', method: 'migrate_singbox_profile', params: ['name'], expect: {} });
-var callSmartModelStatus = rpc.declare({ object: 'luci.clashoo', method: 'smart_model_status',  expect: {} });
-var callSmartUpgradeLgbm = rpc.declare({ object: 'luci.clashoo', method: 'smart_upgrade_lgbm',  expect: {} });
-var callSmartUpgradeLgbmStatus = rpc.declare({ object: 'luci.clashoo', method: 'smart_upgrade_lgbm_status', expect: {} });
 var callSmartFlushCache  = rpc.declare({ object: 'luci.clashoo', method: 'smart_flush_cache',   expect: {} });
 var callDetectPrimaryGroup = rpc.declare({ object: 'luci.clashoo', method: 'detect_primary_group', expect: {} });
 
@@ -179,7 +177,7 @@ function uploadConfigContent(name, content, type) {
 
   function sendNext() {
     var chunk = (content || '').slice(index * chunkSize, (index + 1) * chunkSize);
-    return L.resolveDefault(callUploadConfigChunk(name, chunk, type || '2', index, total), {}).then(function (r) {
+    return L.resolveDefault(callUploadConfigChunk(name, chunk, type || '2', String(index), String(total)), {}).then(function (r) {
       if (!r || !r.success)
         throw new Error((r && (r.message || r.error)) || _("Upload failed"));
       index++;
@@ -460,8 +458,8 @@ function dnsAutoSummaryNode(res) {
   return E('div', { 'class': 'cl-dns-auto-result' }, [
     E('span', [E('b', _("Domestic")), res.nameserver || '-']),
     E('span', [E('b', _("Proxy")), res.proxy_nameserver || '-']),
-    E('span', [E('b', 'Fallback'), res.fallback || '-']),
-    E('span', [E('b', 'Bootstrap'), res.bootstrap || res.direct_nameserver || '-']),
+    E('span', [E('b', _("Fallback")), res.fallback || '-']),
+    E('span', [E('b', _("Bootstrap")), res.bootstrap || res.direct_nameserver || '-']),
     E('span', [E('b', _("Time")), elapsed ? (elapsed / 1000).toFixed(1) + _(" seconds") : '-']),
     E('span', [E('b', _("Failed")), failed + _(" candidates")])
   ]);
@@ -635,7 +633,6 @@ return view.extend({
       fastResolve(callListTemplates(), 1200, { files: [] }),
       fastResolve(loadUiState(), 1200, { core_type: 'mihomo', subscribe_url: '', config_name: '', sub_ua: '' }),
       fastResolve(clashoo.listSingboxProfiles(), 1200, { profiles: [], active: '' }),
-      fastResolve(callSmartModelStatus(), 1500, { has_model: false, version: '' }),
       fastResolve(callSubscriptionUpdateStatus(), 1200, {})
     ]);
   },
@@ -649,8 +646,7 @@ return view.extend({
     var tplFiles   = (data[4] && data[4].files) || [];
     var uiData     = data[5] || { core_type: 'mihomo', subscribe_url: '', config_name: '', sub_ua: '' };
     var sbData          = data[6] || { profiles: [], active: '' };
-    var smartModelData  = data[7] || { has_model: false, version: '' };
-    var subscriptionUpdateStatus = data[8] || {};
+    var subscriptionUpdateStatus = data[7] || {};
     var coreType   = uiData.core_type || 'mihomo';
 
     if (!document.getElementById('cl-css')) {
@@ -695,7 +691,7 @@ return view.extend({
     var built = { subs: true, proxy: false, dns: false };
     var ensureBuilt = function (id) {
       if (built[id]) return;
-      if (id === 'proxy') self._buildProxyForm(proxyPanel, smartModelData);
+      if (id === 'proxy') self._buildProxyForm(proxyPanel);
       else if (id === 'dns') self._buildDnsForm(dnsPanel);
       built[id] = true;
     };
@@ -857,7 +853,7 @@ return view.extend({
             click: function () {
               L.resolveDefault(callSetConfig(sub.name), {}).then(function () { location.reload(); });
             }
-          }, _("Switch")),
+          }, _("Switch Profile")),
           E('button', {
             'class': 'btn cbi-button cl-btn-sm cl-btn-delete',
             click: function () {
@@ -1033,7 +1029,7 @@ return view.extend({
               click: function () {
                 L.resolveDefault(callSetConfig(f.name), {}).then(function () { location.reload(); });
               }
-            }, _("Switch")),
+            }, _("Switch Profile")),
             E('button', {
               'class': 'btn cbi-button cl-btn-sm cl-btn-delete',
               click: function () {
@@ -1113,10 +1109,9 @@ return view.extend({
     return sections.filter(function (n) { return n !== null && n !== undefined; });
   },
 
-  _buildProxyForm: function (container, modelStatus) {
+  _buildProxyForm: function (container) {
     var m = new form.Map('clashoo', '', '');
     var s, o;
-    modelStatus = modelStatus || {};
 
     s = m.section(form.NamedSection, 'config', 'clashoo', _("Transparent Proxy"));
     s.addremove = false;
@@ -1124,9 +1119,12 @@ return view.extend({
     o.value('redirect', 'Redirect'); o.value('tproxy', 'TPROXY'); o.value('tun', 'TUN'); o.value('off', _("Off"));
     o = s.option(form.ListValue, 'udp_mode', _("UDP Mode"));
     o.value('tun', 'TUN'); o.value('tproxy', 'TPROXY'); o.value('off', _("Off"));
-    o = s.option(form.ListValue, 'stack', _("Network Stack Type"));
+    o = s.option(form.ListValue, 'stack', _("TUN Network Stack"));
     o.value('system', 'System'); o.value('gvisor', 'gVisor'); o.value('mixed', 'Mixed');
+    o.description = _("TUN stack is used when either TCP or UDP mode is TUN.");
     o = s.option(form.Flag, 'disable_quic_gso', _("Disable QUIC GSO"));
+    o = s.option(form.Flag, 'block_quic', _("Block QUIC"));
+    o.description = _("Reject proxied UDP 443 so some apps fall back to TCP. Try only when downloads or video stall.");
     o = s.option(form.Flag, 'ipv4_dns_hijack', _("IPv4 DNS Hijack"));
     o = s.option(form.Flag, 'ipv6_dns_hijack', _("IPv6 DNS Hijack"));
     o.description = _("Intercept IPv6 DNS traffic to prevent devices with hard-coded DNS from bypassing the traffic.");
@@ -1233,71 +1231,6 @@ return view.extend({
         if (h3 && h3.textContent.indexOf('Smart') >= 0) { smartSec = sections[i]; break; }
       }
       if (smartSec) {
-        var verEl = modelStatus.has_model
-          ? E('span', { 'class': 'cl-ver-tag' }, [
-              E('span', { 'class': 'cl-ver-label' }, _("Current version: ")),
-              E('span', { 'class': 'cl-ver-value' }, modelStatus.version)
-            ])
-          : E('span', { 'class': 'cl-ver-tag cl-ver-label' }, _("Model not installed"));
-        var statusEl = E('div', { 'class': 'cl-update-status', style: 'margin-top:6px;font-size:12px;min-height:18px;line-height:1.4' });
-        var upgPoller = null;
-        function stopUpgPoller() { if (upgPoller) { clearInterval(upgPoller); upgPoller = null; } }
-        function setStatus(text, tone) {
-          // tone: '' / 'success' / 'error' / 'progress'
-          statusEl.textContent = text || '';
-          statusEl.style.color = tone === 'success' ? 'var(--success-color, #2e7d32)'
-                                : tone === 'error'   ? 'var(--error-color, #d32f2f)'
-                                : tone === 'progress'? 'var(--tip-color, #1976d2)'
-                                : '';
-        }
-        function pollUpgStatus() {
-          callSmartUpgradeLgbmStatus().then(function (st) {
-            st = st || {};
-            var rawLine = st.last_line || '';
-            var line = clashoo.localizeLogLine(rawLine);
-            if (st.running) {
-              setStatus('⏳ ' + (line || _("Downloading LightGBM model...")), 'progress');
-              return;
-            }
-            stopUpgPoller();
-            upgBtn.disabled = false; upgBtn.textContent = _("Check and Update");
-            var ok = /success|complete|done|完成|成功|无需更新|已是最新/i.test(rawLine + ' ' + line) || (st.has_model && st.size_kb > 100);
-            var sizeTxt = st.size_kb ? ' (' + (st.size_kb >= 1024 ? (st.size_kb/1024).toFixed(1) + ' MB' : st.size_kb + ' KB') + ')' : '';
-            setStatus((ok ? '✓ ' : '✗ ') + (line || (ok ? _("Update succeeded") : _("Update failed"))) + sizeTxt, ok ? 'success' : 'error');
-            // 刷新版本标签
-            if (verEl && st.version) {
-              var valEl = verEl.querySelector('.cl-ver-value');
-              if (valEl) valEl.textContent = st.version;
-              else verEl.textContent = _("Current version: ") + st.version;
-            }
-            setTimeout(function () { setStatus(''); }, 8000);
-          });
-        }
-        var upgBtn = E('button', { 'class': 'btn cbi-button-action', 'click': function () {
-          stopUpgPoller();
-          upgBtn.disabled = true; upgBtn.textContent = _("Downloading...");
-          setStatus(_("⏳ Starting update task..."), 'progress');
-          callSmartUpgradeLgbm().then(function () {
-            // 开启状态轮询：每 2s 一次直到结束
-            upgPoller = setInterval(pollUpgStatus, 2000);
-            // 立即先拉一次，反馈更快
-            setTimeout(pollUpgStatus, 500);
-          }).catch(function () {
-            upgBtn.disabled = false; upgBtn.textContent = _("Check and Update");
-            setStatus(_("✗ Start failed"), 'error');
-            setTimeout(function () { setStatus(''); }, 5000);
-          });
-        }}, _("Check and Update"));
-        smartSec.appendChild(E('div', { 'class': 'cbi-value' }, [
-          E('label', { 'class': 'cbi-value-title' }, _("Update Model")),
-          E('div', { 'class': 'cbi-value-field' }, [
-            E('div', { 'class': 'cl-btn-ver-wrap' }, [
-              upgBtn,
-              verEl
-            ]),
-            statusEl
-          ])
-        ]));
         var flushBtn = E('button', { 'class': 'btn cbi-button', 'click': function () {
           flushBtn.disabled = true;
           callSmartFlushCache().then(function (res) {
@@ -1393,8 +1326,10 @@ return view.extend({
     o = s.option(form.ListValue,   'enhanced_mode',     _("Enhanced Mode"));
     o.value('fake-ip', 'Fake-IP'); o.value('redir-host', 'Redir-Host');
     o.default = 'fake-ip';
-    o.description = _("<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--primary-rgb),0.14);color:var(--cl-primary,#3886a1);\">Fake-IP · Recommended</span> Fast resolution and accurate routing; China routing is handled by the core.<br />") +
-      _("<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;background:rgba(128,128,128,0.16);color:var(--cl-label-muted,#888);\">Redir-Host</span> China traffic bypasses the core at firewall level; DNS behavior is slightly weaker. Choose as needed.");
+    o.description = '<span style="display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--primary-rgb),0.14);color:var(--cl-primary,#3886a1);">Fake-IP · ' + _("Recommended") + '</span> ' +
+      _("Fast resolution and accurate routing; China routing is handled by the core.") + '<br />' +
+      '<span style="display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;background:rgba(128,128,128,0.16);color:var(--cl-label-muted,#888);">Redir-Host</span> ' +
+      _("China traffic bypasses the core at firewall level; DNS behavior is slightly weaker. Choose as needed.");
     o = s.option(form.Value,       'fake_ip_range',     _("Fake-IP Range"));
     o.default = '198.18.0.1/16';
     o.placeholder = '198.18.0.1/16';
@@ -1405,6 +1340,7 @@ return view.extend({
     s = m.section(form.NamedSection, 'config', 'clashoo', _("Advanced DNS"));
     s.addremove = false;
     o = s.option(form.Flag,        'dnsforwader',       _("Force DNS Forwarding"));
+    o.depends('enable_dns', '1');
     o = s.option(form.ListValue,   'fake_ip_filter_mode', _("Fake-IP Filter Mode"));
     o.value('blacklist', _("Blocklist (listed items use real IP, default)"));
     o.value('whitelist', _("Allowlist (only listed items use fake-IP)"));
@@ -1420,6 +1356,9 @@ return view.extend({
     o = s.option(form.DynamicList, 'default_nameserver', 'Bootstrap DNS');
     o.placeholder = '223.5.5.5';
     o.description = _("Used to resolve DoH/DoT/DoQ server domains; plain IP DNS is recommended.");
+    o = s.option(form.Flag, 'dns_respect_rules', _("DNS Respect Rules"));
+    o.default = '1';
+    o.description = _("DNS queries follow the routing rules, so overseas domains resolve through the proxy instead of a polluted result. Requires proxy-server-nameserver.");
     o = s.option(form.Value, 'dns_ecs', _("ECS Client Subnet"));
     o.placeholder = _("Recommended blank");
     o.description = _("mihomo writes the ecs parameter to DNS URLs; sing-box writes dns.client_subnet. Leave empty to skip.");
@@ -1636,7 +1575,7 @@ return view.extend({
                     if (r.success) location.reload();
                   });
                 }
-              }, _("Switch")),
+              }, _("Switch Profile")),
               p.source === 'native' && p.sub_url ? E('button', {
                 'class': 'btn cbi-button cl-btn-sm cl-btn-sb-action',
                 click: function (ev) {
@@ -1864,8 +1803,7 @@ return view.extend({
           fetchStatusEl
         ]),
         E('p', { 'class': 'cl-sb-note' },
-          _("For providers that directly offer sing-box JSON subscriptions, or links already converted by external tools.\n") +
-          _("After fetching, click Update on the corresponding item in the Configuration Files tab to fetch the latest configuration again.")
+          _("For providers that directly offer sing-box JSON subscriptions, or links already converted by external tools. After fetching, click Update on the corresponding item in the Configuration Files tab to fetch the latest configuration again.")
         )
       ]),
       E('div', { 'class': 'cl-section cl-card cl-sb-card' }, [

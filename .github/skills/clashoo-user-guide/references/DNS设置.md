@@ -12,7 +12,7 @@ Clashoo 的 DNS 页面可以先按三块理解：基础 DNS、上游 DNS、分�
 |---|---|---|
 | 基础 DNS | 内核 DNS 功能本身怎么工作 | 先决定“Clashoo 要不要接管 DNS、监听哪个端口、用 Fake-IP 还是 Redir-Host、要不要解析 IPv6、Fake-IP 网段是什么” |
 | 上游 DNS | Clashoo 解析域名时去问谁 | 决定“国内域名问阿里/腾讯，国外域名问 Cloudflare/Google，节点域名问哪个 DNS” |
-| 分流 DNS | 什么域名该走哪个上游 DNS | 决定“`geosite:cn` 走国内 DNS，`geosite:geolocation-!cn` 走国外 DNS” |
+| 分流 DNS | 什么域名该走哪个上游 DNS | 决定“国内域名走国内 DNS，非国内域名走国外 DNS” |
 
 一句话：
 
@@ -59,7 +59,7 @@ Clashoo 默认把上游 DNS 分角色：
 例如默认策略：
 
 ```text
-geosite:cn              -> 国内 DNS
+rule-set:cn_domain      -> 国内 DNS
 geosite:geolocation-!cn -> 国外加密 DNS
 ```
 
@@ -76,12 +76,12 @@ Clashoo 默认 DNS 以“Fake-IP + 国内 DNS 直连 + 国外 DNS 防污染”�
 
 | 设置项 | 默认值 | 作用 | 建议 |
 |---|---|---|---|
-| 启用 DNS 模块 | `1` | 让 Clashoo 内核接管 DNS 解析。关闭后，很多 Fake-IP 和分流能力会失效。 | 保持开启 |
+| 启用 DNS 模块 | `1` | 让 Clashoo 内核接管 DNS 解析。关闭后，Fake-IP 和分流 DNS 能力会失效，Clashoo 会把 dnsmasq 还原回系统 DNS。 | 保持开启 |
 | DNS 监听端口 | `1053` | Clashoo 内核监听 DNS 的端口，dnsmasq / 防火墙会把 DNS 请求转到这里。 | 不冲突就不要改 |
 | 增强模式 | `fake-ip` | 使用 Fake-IP 机制，把需要代理的域名映射到虚拟 IP，再由内核还原域名转发。 | 推荐默认 |
 | Fake-IP 网段 | `198.18.0.1/16` | Fake-IP 使用的 IPv4 虚拟地址池。`198.18.0.0/15` 常用于测试网络，不会和公网冲突。 | 保持默认 |
 | IPv6 DNS | `false` | 控制内核解析域名时是否查询 AAAA 记录。关闭后更偏向 IPv4。 | IPv6 不稳定时关闭 |
-| 强制转发 DNS | `1` | 配合 dnsmasq / 防火墙，把客户端 DNS 请求转给 Clashoo。 | 保持开启 |
+| 强制转发 DNS | `1` | 配合 dnsmasq / 防火墙，把客户端 DNS 请求转给 Clashoo。只有启用 DNS 模块时才有意义。 | 保持开启 |
 | Fake-IP 过滤域名 | `*.lan`、`localhost.ptlogin2.qq.com`、`rule-set:cn_domain` | 这些域名不走 Fake-IP（走真实 IP），避免局域网域名异常；`rule-set:cn_domain` 让国内域名走真实 IP 直连，并用内置 `cn.mrs` 规则集替代 `geosite:cn`，免加载 10MB 的 geosite.dat、启动更快。填 `geosite:cn` 也会自动改用 cn.mrs。 | 保持默认，需要时再追加 |
 | Bootstrap DNS | `223.5.5.5`、`119.29.29.29` | 用来解析 DoH / DoT / DoQ 服务器本身的域名。必须尽量稳定，最好是纯 IP DNS。 | 保持默认或换成本地可用 DNS |
 | ECS 客户端子网 | 留空（推荐） | 给上游 DNS 一个“客户端大概位置”，帮助 CDN 返回更合适的 IP。mihomo 写入 DNS URL 的 `ecs` 参数，sing-box 写入 `dns.client_subnet`；清空则不写入。 | 默认留空即可；懂网络再填 |
@@ -109,17 +109,44 @@ Clashoo 把上游 DNS 分成不同角色，不同域名会走不同解析链。
 
 | 角色 | 默认值 | 用途 |
 |---|---|---|
-| 国内上游 DNS | `https://dns.alidns.com/dns-query`、`https://doh.pub/dns-query` | 解析国内域名，减少国内网站绕路 |
-| 节点域名解析专用 | `tls://1.1.1.1:853` | 解析代理节点服务器域名，避免节点域名被错误分流 |
-| 国外加密 DNS | `https://cloudflare-dns.com/dns-query`、`https://dns.google/dns-query` | 解析国外域名，降低污染影响 |
-| 直连域名解析 | `udp://223.5.5.5` | 明确直连的域名走国内 DNS |
+| 主解析（nameserver） | `https://dns.alidns.com/dns-query`、`https://doh.pub/dns-query` | 默认国内主解析，保证国内域名和 CDN 调度稳定 |
+| 节点域名解析（proxy-server-nameserver） | `tls://1.1.1.1:853` | 配合 DNS Respect Rules 解析代理节点相关域名，避免污染 |
+| 直连域名解析（direct-nameserver） | `udp://223.5.5.5` | 明确直连的域名走国内 DNS |
+| Bootstrap DNS（default-nameserver） | `223.5.5.5`、`119.29.29.29` | 解析 DoH / DoT / DoQ 服务器本身，必须是纯 IP |
+| Fallback DNS | `https://cloudflare-dns.com/dns-query`、`https://dns.google/dns-query` | 给非国内域名策略或 Redir-Host 场景兜底，Fake-IP 模式下默认不直接注入 fallback 字段 |
 
 默认分流解析策略：
 
 | 匹配规则 | 默认使用 DNS | 含义 |
 |---|---|---|
-| `geosite:cn` | 阿里 DNS、腾讯 DNS | 国内域名用国内 DNS |
-| `geosite:geolocation-!cn` | Cloudflare DNS | 非中国域名用国外加密 DNS |
+| `rule-set:cn_domain` | 阿里 DNS、腾讯 DNS | 国内域名用国内 DNS，使用内置 `cn.mrs`，不依赖 geosite.dat |
+| `geosite:geolocation-!cn` | Cloudflare DNS | 非国内域名用境外 DNS |
+
+Fake-IP 模式下不再配置 fallback。mihomo 一旦配了 fallback 就会自动启用 fallback-filter，境外 DNS 直连被墙时会空等超时，反而拖慢 Google、YouTube。
+
+界面里仍可以填 `geosite:cn`，Clashoo 运行时会自动改成 `rule-set:cn_domain`。这样不需要额外加载 10MB 左右的 geosite.dat，干净固件也能用内置 `cn.mrs` 做国内域名判断。
+
+## DNS Respect Rules
+
+位置：`基础设置 -> 高级 DNS -> DNS Respect Rules`，默认开启。
+
+打开后，DNS 查询本身也按代理规则走。境外 DNS 查询可以经代理出去，避免直连被污染；节点域名解析会使用 `proxy-server-nameserver`。
+
+关闭它会怎样：境外域名改用直连的 DNS 解析，很可能拿到污染 IP。表现是网页能开（TCP 把域名交给节点解析，不受影响），但 **QUIC / UDP 会挂**（UDP 出站必须先在本地解析出 IP，就发到污染地址去了），典型症状就是 Google Play 下载一直转圈。
+
+前提：必须配置了「节点域名解析（proxy-server-nameserver）」，否则 mihomo 会拒绝启动。开了 `prefer-h3` 时不要用。
+
+## 自己写的配置文件优先
+
+如果你的配置文件里已经写了 `dns` 段，里面已有的字段（`nameserver`、`nameserver-policy`、`respect-rules` 等）**不会被 LuCI 的设置覆盖**，Clashoo 只补你没写的部分。想完全由 LuCI 接管，就把配置文件里的 `dns` 段删掉。
+
+几个例外是为了避免已知坑：
+
+- 用户配置里的 `fake-ip-filter` 和 `sniffer` 会整体保留，不再强行覆盖。
+- LuCI 里额外填写的 Fake-IP 过滤域名会追加合并到用户原有列表，不会清空原条目。
+- 用户配置的 `nameserver-policy` 缺少国内域名兜底时，会补 `rule-set:cn_domain`。
+- 用户写了 `geosite:cn` 时，会映射到内置 `rule-set:cn_domain`。
+- 用户 DNS 里写 `system` 时，会改成 `223.5.5.5`，避免 DNS 自环。
 
 ## 基础 DNS 与透明代理 DNS 劫持的区别
 

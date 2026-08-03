@@ -48,6 +48,10 @@ backend_remove_rules() {
 	fi
 }
 
+_clashoo_enabled() {
+	[ "$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]
+}
+
 # Compute start-wait window: TUN needs longer for utun setup + fake-ip pool init.
 # Override via `uci set clashoo.config.start_wait_secs=N` for slow devices.
 _compute_start_wait() {
@@ -110,7 +114,44 @@ cleanup_stale_core_nft() {
 }
 
 _core_candidates() {
-	echo "/usr/bin/mihomo /usr/bin/clash-meta /etc/clashoo/clash"
+	echo "/usr/bin/mihomo-stable /usr/bin/mihomo /usr/bin/clash-meta /etc/clashoo/clash"
+}
+
+_migrate_legacy_mihomo_stable() {
+	local legacy=/usr/bin/clash-meta version
+	[ -x /usr/bin/mihomo-stable ] && return 0
+	[ -x "$legacy" ] && [ ! -L "$legacy" ] || return 0
+	version=$("$legacy" -v 2>/dev/null | head -n 1)
+	[ -n "$version" ] || return 0
+	echo "$version" | grep -Eiq '(alpha|beta|rc|pre|smart)' && return 0
+	cp -f "$legacy" /usr/bin/mihomo-stable 2>/dev/null && chmod 0755 /usr/bin/mihomo-stable
+}
+
+_fallback_missing_mihomo_core() {
+	local selected fallback
+	is_singbox_selected && return 0
+	selected="$(uci -q get clashoo.config.core 2>/dev/null)"
+	case "$selected" in
+		2)
+			[ -x /usr/bin/mihomo-stable ] && return 0
+			[ -x /usr/bin/mihomo ] || return 0
+			fallback=3
+			;;
+		3)
+			[ -x /usr/bin/mihomo ] && return 0
+			[ -x /usr/bin/mihomo-stable ] || return 0
+			fallback=2
+			;;
+		*) return 0 ;;
+	esac
+	uci -q set clashoo.config.core="$fallback"
+	uci -q set clashoo.config.dcore="$fallback"
+	uci -q commit clashoo >/dev/null 2>&1
+	if [ "$fallback" = "3" ]; then
+		log_msg "Stable core missing, falling back to Alpha" "稳定版内核缺失，自动回退到 Alpha"
+	else
+		log_msg "Alpha core missing, falling back to stable" "Alpha 内核缺失，自动回退到稳定版"
+	fi
 }
 
 _detect_selected_core() {
@@ -124,16 +165,11 @@ _detect_selected_core() {
 			return 1
 			;;
 		2|mihomo)
-			# stable: clash-meta first (user-downloaded); /usr/bin/mihomo is auto-bump-alpha, skip it.
-			for _bin in /usr/bin/clash-meta /etc/clashoo/clash-meta /usr/bin/mihomo; do
-				[ -x "$_bin" ] && echo "$_bin" && return
-			done
+			[ -x /usr/bin/mihomo-stable ] && echo /usr/bin/mihomo-stable && return
 			return 1
 			;;
 		3|mihomo-alpha)
-			for _bin in /usr/bin/mihomo /usr/bin/clash-meta; do
-				[ -x "$_bin" ] && echo "$_bin" && return
-			done
+			[ -x /usr/bin/mihomo ] && echo /usr/bin/mihomo && return
 			return 1
 			;;
 	esac
@@ -142,7 +178,7 @@ _detect_selected_core() {
 
 core_supports_advanced_features() {
 	case "$CLASH" in
-		*/mihomo|*/clash-meta|*/smart)
+		*/mihomo|*/mihomo-stable|*/clash-meta|*/smart)
 			return 0
 			;;
 		*)
@@ -493,7 +529,7 @@ runtime_run_health_check() {
 	explicit_state="na"
 	transparent_state="na"
 	require_fakeip="0"
-	[ "$(uci -q get clashoo.config.enhanced_mode 2>/dev/null)" = "fake-ip" ] && require_fakeip="1"
+	[ "$(uci -q get clashoo.config.enable_dns 2>/dev/null)" != "0" ] && [ "$(uci -q get clashoo.config.enhanced_mode 2>/dev/null)" = "fake-ip" ] && require_fakeip="1"
 
 	if command_exists nslookup; then
 		dns_state="fail"
@@ -717,28 +753,29 @@ restore_dnsmasq_state() {
 
 ensure_dns_when_core_stopped() {
 #===========================================================================================================================
-	# Safety net: when core is stopped, never leave dnsmasq forwarding only to local Clashoo DNS.
-	if _selected_core_running; then
-		return 0
-	fi
-
-	local servers token has_remote
-	has_remote=0
+	local force="${1:-0}" servers token remote_servers
+	[ "$force" = "1" ] || ! _selected_core_running || return 0
 	servers="$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null)"
+	remote_servers=""
 	for token in $servers; do
-		if [ "$token" != "127.0.0.1#1053" ] && [ "$token" != "127.0.0.1#5300" ] && [ "$token" != "127.0.0.1#7874" ]; then
-			has_remote=1
-			break
-		fi
+		case "$token" in
+			127.0.0.1#1053|127.0.0.1#5300|127.0.0.1#7874) ;;
+			*) remote_servers="${remote_servers} ${token}" ;;
+		esac
 	done
 
-	if [ "$has_remote" -eq 0 ]; then
+	if [ "$force" = "1" ] || [ -z "$remote_servers" ]; then
 		uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1
+		for token in $remote_servers; do
+			uci add_list dhcp.@dnsmasq[0].server="$token" >/dev/null 2>&1
+		done
+	fi
+	if [ -z "$remote_servers" ]; then
 		uci add_list dhcp.@dnsmasq[0].server='119.29.29.29' >/dev/null 2>&1
 		uci add_list dhcp.@dnsmasq[0].server='223.5.5.5' >/dev/null 2>&1
+	fi
+	if [ "$force" = "1" ] || [ -z "$remote_servers" ]; then
 		uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1
-		uci commit dhcp >/dev/null 2>&1
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	fi
 #===========================================================================================================================
 }
@@ -746,7 +783,7 @@ ensure_dns_when_core_stopped() {
 revert_dns() {
 #===========================================================================================================================  
 	restore_dnsmasq_state
-	ensure_dns_when_core_stopped
+	ensure_dns_when_core_stopped "${1:-0}"
 	rm -rf "$CUSLIST" "$CUSLITT" "$CUSLISTV" "$CUSLITTV" 2>/dev/null
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
@@ -851,11 +888,243 @@ fi
 
 
 
+_dns_roles_look_broken() {
+	local i=0 t a en broken=1 fb_total=0 fb_domestic=0
+	while :; do
+		t="$(uci -q get clashoo.@dnsservers[$i].ser_type 2>/dev/null)"
+		[ -n "$t" ] || break
+		en="$(uci -q get clashoo.@dnsservers[$i].enabled 2>/dev/null)"
+		a="$(uci -q get clashoo.@dnsservers[$i].ser_address 2>/dev/null)"
+		i=$((i + 1))
+		[ "$en" = "0" ] && continue
+		case "$t" in
+			nameserver)
+				printf '%s' "$a" | grep -qE '1\.1\.1\.1|1\.0\.0\.1|one\.one\.one\.one|cloudflare|8\.8\.8\.8|8\.8\.4\.4|dns\.google|9\.9\.9\.9' && broken=0
+				;;
+			fallback)
+				fb_total=$((fb_total + 1))
+				printf '%s' "$a" | grep -qE '223\.5\.5\.5|223\.6\.6\.6|119\.29\.29\.29|119\.28\.28\.28|114\.114|180\.184|alidns|doh\.pub|dnspod' && fb_domestic=$((fb_domestic + 1))
+				;;
+		esac
+	done
+	[ "$fb_total" -gt 0 ] && [ "$fb_total" = "$fb_domestic" ] && broken=0
+	return $broken
+}
+
+_dns_drop_legacy_geolocation_policy() {
+	local i=0 matcher nameserver
+	while uci -q get "clashoo.@dns_policy[$i]" >/dev/null 2>&1; do
+		matcher="$(uci -q get "clashoo.@dns_policy[$i].matcher" 2>/dev/null)"
+		nameserver="$(uci -q get "clashoo.@dns_policy[$i].nameserver" 2>/dev/null)"
+		if [ "$matcher" = "geosite:geolocation-!cn" ] && [ "$nameserver" = "https://cloudflare-dns.com/dns-query" ]; then
+			uci -q delete "clashoo.@dns_policy[$i]"
+			continue
+		fi
+		i=$((i + 1))
+	done
+}
+
+_migrate_dns_roles() {
+	local ver
+	ver="$(uci -q get clashoo.config.dns_migrated 2>/dev/null)"
+	[ "$ver" = "3" ] && return 0
+	if [ "$ver" = "2" ]; then
+		_dns_drop_legacy_geolocation_policy
+		uci -q set clashoo.config.dns_migrated='3'
+		uci -q commit clashoo
+		return 0
+	fi
+	if [ "$ver" = "1" ] && ! _dns_roles_look_broken; then
+		_dns_drop_legacy_geolocation_policy
+		uci -q set clashoo.config.dns_migrated='3'
+		uci -q commit clashoo
+		return 0
+	fi
+	while uci -q delete clashoo.@dnsservers[0] >/dev/null 2>&1; do :; done
+	while uci -q delete clashoo.@dns_policy[0] >/dev/null 2>&1; do :; done
+	_add_dnsserver() {
+		local sec
+		sec="$(uci -q add clashoo dnsservers)" || return 1
+		uci -q set clashoo."$sec".enabled='1'
+		uci -q set clashoo."$sec".ser_type="$1"
+		uci -q set clashoo."$sec".ser_address="$2"
+		uci -q set clashoo."$sec".protocol="${3:-none}"
+		[ -n "$4" ] && uci -q set clashoo."$sec".ser_port="$4"
+	}
+	_add_dnsserver 'nameserver' 'https://dns.alidns.com/dns-query'
+	_add_dnsserver 'nameserver' 'https://doh.pub/dns-query'
+	_add_dnsserver 'proxy-server-nameserver' '1.1.1.1' 'tls://' '853'
+	_add_dnsserver 'fallback' 'https://cloudflare-dns.com/dns-query'
+	_add_dnsserver 'fallback' 'https://dns.google/dns-query'
+	_add_dnsserver 'direct-nameserver' '223.5.5.5' 'udp://'
+	local sec
+	sec="$(uci -q add clashoo dns_policy)"
+	uci -q set clashoo."$sec".enabled='1'
+	uci -q set clashoo."$sec".policy_type='nameserver-policy'
+	uci -q set clashoo."$sec".matcher='geosite:cn'
+	uci -q add_list clashoo."$sec".nameserver='https://dns.alidns.com/dns-query'
+	uci -q add_list clashoo."$sec".nameserver='https://doh.pub/dns-query'
+	uci -q set clashoo.config.dns_migrated='3'
+	uci -q commit clashoo
+	log_msg "Upstream DNS roles migrated" "上游 DNS 角色已恢复为经典防污染模型（国内主解析 + 境外 fallback）"
+}
+
+_user_dns_fields() {
+	local field out="" force="${1:-}"
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	for field in nameserver proxy-server-nameserver fallback direct-nameserver \
+		default-nameserver nameserver-policy respect-rules; do
+		case ",$force," in *,"$field",*) continue ;; esac
+		[ "$(yq -M e "(.dns // {}) | has(\"${field}\")" "$CONFIG_YAML" 2>/dev/null)" = "true" ] &&
+			out="${out}${out:+,}${field}"
+	done
+	[ "$(yq -M e '.dns."prefer-h3" // false' "$CONFIG_YAML" 2>/dev/null)" = "true" ] &&
+		out="${out}${out:+,}prefer-h3"
+	printf '%s' "$out"
+}
+
+_dns_list_values() {
+	local field="$1"
+	command -v yq >/dev/null 2>&1 || return 0
+	yq -M e -r "(.dns.\"${field}\" // [])[]" "$CONFIG_YAML" 2>/dev/null | sed '/^null$/d'
+}
+
+_dns_value_is_domestic() {
+	case "$1" in
+		*223.5.5.5*|*119.29.29.29*|*114.114.114.114*|*180.184.*|*1.2.4.8*|*doh.pub*|*alidns*|*dns.pub*|*dnspod*)
+			return 0 ;;
+	esac
+	return 1
+}
+
+_dns_list_all_domestic() {
+	local field="$1" value seen=0
+	for value in $(_dns_list_values "$field"); do
+		seen=1
+		_dns_value_is_domestic "$value" || return 1
+	done
+	[ "$seen" = "1" ]
+}
+
+_dns_has_cn_rule_set() {
+	_dns_list_values "fake-ip-filter" | grep -qx 'rule-set:cn_domain' || return 1
+	yq -M e -r '(.dns."nameserver-policy"."rule-set:cn_domain" // [])[]' "$CONFIG_YAML" 2>/dev/null | grep -q .
+}
+
+_clashoo_dns_force_fields() {
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	local managed legacy fields
+	fields="nameserver,proxy-server-nameserver,direct-nameserver,default-nameserver,nameserver-policy,respect-rules"
+	managed="$(yq -M e '(.dns."x-clashoo-managed-dns" // false) == true' "$CONFIG_YAML" 2>/dev/null)"
+	if [ "$managed" = "true" ]; then
+		printf '%s' "$fields"
+		return 0
+	fi
+	legacy=0
+	if _dns_has_cn_rule_set &&
+		_dns_list_all_domestic "nameserver" &&
+		_dns_list_all_domestic "proxy-server-nameserver"; then
+		legacy=1
+	fi
+	[ "$legacy" = "1" ] && printf '%s' "$fields"
+	return 0
+}
+
 yml_change() {
-	ucode /usr/share/clashoo/runtime/mixin.uc 2>/dev/null | yq -M -p json -o yaml > /tmp/_clashoo_mixin.yaml 2>/dev/null && 
+	CLASHOO_DNS_FORCE="$(_clashoo_dns_force_fields)"
+	CLASHOO_DNS_PRESENT="$(_user_dns_fields "$CLASHOO_DNS_FORCE")"
+	export CLASHOO_DNS_FORCE
+	export CLASHOO_DNS_PRESENT
+	CLASHOO_KEEP_FAKEIP_FILTER=""
+	CLASHOO_KEEP_SNIFFER=""
+	if command -v yq >/dev/null 2>&1 && [ -s "$CONFIG_YAML" ]; then
+		[ "$(yq -M e '(.dns // {}) | has("fake-ip-filter")' "$CONFIG_YAML" 2>/dev/null)" = "true" ] &&
+			CLASHOO_KEEP_FAKEIP_FILTER=1
+		[ "$(yq -M e 'has("sniffer")' "$CONFIG_YAML" 2>/dev/null)" = "true" ] &&
+			CLASHOO_KEEP_SNIFFER=1
+	fi
+	export CLASHOO_KEEP_FAKEIP_FILTER
+	export CLASHOO_KEEP_SNIFFER
+	ucode /usr/share/clashoo/runtime/mixin.uc 2>/dev/null | yq -M -p json -o yaml > /tmp/_clashoo_mixin.yaml 2>/dev/null &&
 		yq -M eval-all '. as $item ireduce ({}; . * $item)' "$CONFIG_YAML" /tmp/_clashoo_mixin.yaml > "${CONFIG_YAML}.mixin" 2>/dev/null && 
 		mv -f "${CONFIG_YAML}.mixin" "$CONFIG_YAML" 2>/dev/null && 
 		rm -f /tmp/_clashoo_mixin.yaml 2>/dev/null
+}
+
+_uci_fake_ip_filter_extras() {
+	local item list
+	list="$(uci -q get clashoo.config.fake_ip_filter 2>/dev/null)"
+	set -f
+	for item in $list; do
+		case "$item" in
+			'*.lan'|'localhost.ptlogin2.qq.com'|'rule-set:cn_domain')
+				continue ;;
+			geosite:cn)
+				printf '%s\n' 'rule-set:cn_domain' ;;
+			*)
+				printf '%s\n' "$item" ;;
+		esac
+	done
+	set +f
+}
+
+_ensure_cn_domain_rule_provider() {
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	yq -M e -i '
+		.["rule-providers"].cn_domain = {
+			"type": "file",
+			"path": "./ruleset/cn.mrs",
+			"format": "mrs",
+			"behavior": "domain"
+		}
+	' "$CONFIG_YAML" 2>/dev/null || true
+}
+
+append_luci_fake_ip_filter_extras() {
+	[ -n "${CLASHOO_KEEP_FAKEIP_FILTER:-}" ] || return 0
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+
+	local item needs_cn_file
+	needs_cn_file="/tmp/.clashoo_need_cn_rs.$$"
+	rm -f "$needs_cn_file" 2>/dev/null
+	_uci_fake_ip_filter_extras | while IFS= read -r item; do
+		[ -n "$item" ] || continue
+		[ "$item" = "rule-set:cn_domain" ] && : > "$needs_cn_file"
+		CLASHOO_FAKEIP_FILTER_ITEM="$item" yq -M e -i '
+			.dns."fake-ip-filter" = (((.dns."fake-ip-filter" // []) + [strenv(CLASHOO_FAKEIP_FILTER_ITEM)]) | unique)
+		' "$CONFIG_YAML" 2>/dev/null || true
+	done
+	[ -f "$needs_cn_file" ] && _ensure_cn_domain_rule_provider
+	rm -f "$needs_cn_file" 2>/dev/null
+}
+
+ensure_dns_cn_policy_fallback() {
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	[ "$(yq -M e '(.dns // {}) | has("nameserver-policy")' "$CONFIG_YAML" 2>/dev/null)" = "true" ] || return 0
+	[ "$(yq -M e '((.dns."nameserver-policy" // {}) | type) == "!!map"' "$CONFIG_YAML" 2>/dev/null)" = "true" ] || return 0
+
+	if [ "$(yq -M e '(.dns."nameserver-policy" // {}) | has("rule-set:cn_domain")' "$CONFIG_YAML" 2>/dev/null)" = "true" ]; then
+		_ensure_cn_domain_rule_provider
+		return 0
+	fi
+
+	if [ "$(yq -M e '(.dns."nameserver-policy" // {}) | has("geosite:cn")' "$CONFIG_YAML" 2>/dev/null)" = "true" ]; then
+		yq -M e -i '.dns."nameserver-policy"."rule-set:cn_domain" = .dns."nameserver-policy"."geosite:cn"' "$CONFIG_YAML" 2>/dev/null || true
+	else
+		yq -M e -i '.dns."nameserver-policy"."rule-set:cn_domain" = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"]' "$CONFIG_YAML" 2>/dev/null || true
+	fi
+	_ensure_cn_domain_rule_provider
+}
+
+_remap_dns_system_nameserver() {
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	yq -M e -i '(.dns | .. | select(. == "system")) |= "223.5.5.5"' "$CONFIG_YAML" 2>/dev/null || true
 }
 
 ip_rules() {
@@ -1049,6 +1318,25 @@ smart_inject() {
 }
 
 
+_lan_acl_enabled() {
+	local section
+	for section in $(uci -q show clashoo 2>/dev/null | sed -n 's/^clashoo\.\([^.=]*\)=lan_acl$/\1/p'); do
+		[ "$(uci -q get "clashoo.${section}.enabled" 2>/dev/null)" != "0" ] && return 0
+	done
+	[ "$(uci -q get clashoo.config.acl_migrated 2>/dev/null)" = "1" ] && return 1
+	case "$(uci -q get clashoo.config.access_control 2>/dev/null)" in
+		1|2) return 0 ;;
+	esac
+	return 1
+}
+
+_lan_dns_split_enabled() {
+	_lan_acl_enabled || return 1
+	[ "$(uci -q get clashoo.config.enable_dns 2>/dev/null)" != "0" ] || return 1
+	[ "$(uci -q get clashoo.config.ipv4_dns_hijack 2>/dev/null)" = "1" ] ||
+		[ "$(uci -q get clashoo.config.ipv6_dns_hijack 2>/dev/null)" = "1" ]
+}
+
 yml_dns_change(){
 #=========================================================================================================================== 	
 	dns_port=$(sed -n 's/^[[:space:]]*listen:.*:[[:space:]]*['"'"'"]*\([0-9]\{1,\}\)['"'"'"]*[[:space:]]*$/\1/p' /etc/clashoo/config.yaml 2>/dev/null | head -n1)
@@ -1062,6 +1350,14 @@ yml_dns_change(){
 	fi
 	dnsforwader=$(uci get clashoo.config.dnsforwader 2>/dev/null)
 	dnscache=$(uci get clashoo.config.dnscache 2>/dev/null)
+	if [ "$(uci -q get clashoo.config.enable_dns 2>/dev/null)" = "0" ]; then
+		revert_dns >/dev/null 2>&1
+		return 0
+	fi
+	if _lan_dns_split_enabled; then
+		revert_dns 1 >/dev/null 2>&1
+		return 0
+	fi
 	backup_dnsmasq_state
 	if [ "${dns_port:-0}" -eq 53 ]; then
 			sed -i "s@^\([[:space:]]*listen:[[:space:]]*\)0\.0\.0\.0:53@\10.0.0.0:${listen_port}@g" "$CONFIG_YAML"
@@ -1110,6 +1406,10 @@ yml_dns_change(){
 singbox_dns_change() {
 #===========================================================================================================================
 	local dnsforwader dnscache dns_port
+	if _lan_dns_split_enabled; then
+		revert_dns 1 >/dev/null 2>&1
+		return 0
+	fi
 	dnsforwader="$(uci get clashoo.config.dnsforwader 2>/dev/null)"
 	if [ "${dnsforwader:-0}" -eq 0 ]; then
 		return 0
@@ -1182,7 +1482,7 @@ _config_needs_geosite() {
 	# Matches: routing rules (- GEOSITE,...), geosite: child blocks, and
 	# list-item refs like `- geosite:cn` / `- 'geosite:cn'` used in
 	# fake-ip-filter (the default config ships one, easy to miss).
-	grep -Eq "^[[:space:]]*-[[:space:]]*[\"']?GEOSITE,|^[[:space:]]*geosite:[[:space:]]*|^[[:space:]]*'geosite:|^[[:space:]]*-[[:space:]]*[\"']?geosite:" "$CONFIG_YAML"
+	grep -Eq "^[[:space:]]*-[[:space:]]*[\"']?GEOSITE,|^[[:space:]]*geosite:[[:space:]]*|^[[:space:]]*[\"']geosite:|^[[:space:]]*-[[:space:]]*[\"']?geosite:" "$CONFIG_YAML"
 }
 
 _has_valid_local_geosite() {
@@ -1293,7 +1593,9 @@ _prepare_geo_bootstrap_mode() {
 		_strip_yaml_rule_lines "^[[:space:]]*-[[:space:]]*[\"']?GEOSITE,"
 		_strip_yaml_child_block '^[[:space:]]*geosite:[[:space:]]*$'
 		_strip_yaml_child_block "^[[:space:]]*'geosite:[^']*'[[:space:]]*:[[:space:]]*$"
-		sed -i '/^[[:space:]]*geosite:[[:space:]]*[^[:space:]].*/d' "$CONFIG_YAML" 2>/dev/null
+		_strip_yaml_child_block '^[[:space:]]*"geosite:[^"]*"[[:space:]]*:[[:space:]]*$'
+		_strip_yaml_child_block '^[[:space:]]*geosite:[^[:space:]]+:[[:space:]]*$'
+		_strip_yaml_rule_lines '^[[:space:]]*geosite:[[:space:]]+[^[:space:]].*'
 		# list-item refs (e.g. fake-ip-filter: - geosite:cn / - 'geosite:cn')
 		sed -i "/^[[:space:]]*-[[:space:]]*[\"']\{0,1\}geosite:/d" "$CONFIG_YAML" 2>/dev/null
 	fi
@@ -1332,6 +1634,7 @@ _finish_geo_bootstrap() {
 	fi
 
 	rm -f /var/run/clashoo_bootstrap_pending >/dev/null 2>&1
+	_clashoo_enabled || return 0
 	log_msg "Bootstrap: geo ready, reloading full config" "引导模式：Geo 数据已就绪，正在重载完整配置"
 	/etc/init.d/clashoo restart >/dev/null 2>&1
 }
@@ -1405,6 +1708,8 @@ _start_prepare_config() {
 
 	check >/dev/null 2>&1
 
+	_migrate_dns_roles >/dev/null 2>&1
+
 	enable_dns=$(uci get clashoo.config.enable_dns 2>/dev/null)
 
 	if [ -z "$(grep -E "^ {0,}listen:" /etc/clashoo/config.yaml)" ] || [ -z "$(grep -E "^ {0,}enhanced-mode:" /etc/clashoo/config.yaml)" ] || [ -z "$(grep -E "^ {0,}dns:" /etc/clashoo/config.yaml)" ];then
@@ -1419,7 +1724,7 @@ _start_prepare_config() {
 	if { egrep -q '^ {0,}rule-providers:' "/etc/clashoo/config.yaml" || egrep -q '^ {0,}script:' "/etc/clashoo/config.yaml"; } && ! core_supports_advanced_features; then
 		if [ -x /usr/bin/mihomo ]; then
 			uci set clashoo.config.core="3" && uci commit clashoo
-		elif [ -x /usr/bin/clash-meta ] || [ -x /etc/clashoo/clash-meta ]; then
+		elif [ -x /usr/bin/mihomo-stable ]; then
 			uci set clashoo.config.core="2" && uci commit clashoo
 		else
 			log_msg "Current config requires mihomo/clash-meta core" "当前配置需要 mihomo 或 clash-meta 内核"
@@ -1449,6 +1754,7 @@ _start_prepare_config() {
 		fi
 	fi
 	yml_change >/dev/null 2>&1
+	append_luci_fake_ip_filter_extras >/dev/null 2>&1
 	dns_leak_protect=$(uci -q get clashoo.config.dns_leak_protect 2>/dev/null)
 	if command -v dns_mihomo_apply_leak_protect >/dev/null 2>&1; then
 		# dns_leak_protect=1 forces ipv6:false; otherwise follow UCI enable_ipv6 (omit when unset)
@@ -1471,6 +1777,8 @@ _start_prepare_config() {
 	fi
 
 	_prepare_geo_bootstrap_mode
+	_remap_dns_system_nameserver >/dev/null 2>&1
+	ensure_dns_cn_policy_fallback >/dev/null 2>&1
 
 
 	if [ ! -f /etc/clashoo/config.yaml ];then
@@ -1599,6 +1907,7 @@ boot(){
 		(
 			exec 1000>&- </dev/null >/dev/null 2>&1
 			sleep 5
+			_clashoo_enabled || exit 0
 			/etc/init.d/clashoo start
 		) &
 	else
@@ -1620,10 +1929,13 @@ start_service(){
 	core_only=$(uci -q get clashoo.config.core_only 2>/dev/null)
 
 	sync_legacy_core_field
+	_migrate_legacy_mihomo_stable
+	_fallback_missing_mihomo_core
 	CLASH="$(_detect_selected_core)"
 
 	cleanup_legacy_startup_backups
 	migrate_legacy_clash_dir
+	/usr/share/clashoo/migrate_lan_acl.sh >/dev/null 2>&1 || true
 	runtime_state_reset
 
 	if [ "${enable:-0}" -eq 1 ]; then
@@ -1730,6 +2042,18 @@ remove_mark(){
 
 stop_service(){
 #===========================================================================================================================
+		# The updater restarts once after an in-place APK upgrade. Skip the
+		# package-manager pre-deinstall stop to avoid its ~120s script wait.
+		if [ -r /var/run/clashoo_package_upgrade ]; then
+			_upgrade_pid="$(cat /var/run/clashoo_package_upgrade 2>/dev/null)"
+			case "$_upgrade_pid" in
+				''|*[!0-9]*) rm -f /var/run/clashoo_package_upgrade ;;
+				*)
+					[ -d "/proc/$_upgrade_pid" ] && return 0
+					rm -f /var/run/clashoo_package_upgrade
+					;;
+			esac
+		fi
 		
 			lang=$(uci get luci.main.lang 2>/dev/null)
 			tun_mode=$(uci get clashoo.config.tun_mode 2>/dev/null)
@@ -1738,6 +2062,13 @@ stop_service(){
 			rm -f /tmp/clashoo/fake_filter.list /tmp/clashoo/fake_filter.yaml 2>/dev/null
 
 			log_msg "Stopping Clashoo" "正在停止 Clashoo"
+			for _ac_sig in TERM KILL; do
+				for _ac_pid in $(pgrep -f access_check_daemon 2>/dev/null); do
+					tr '\0' ' ' < "/proc/$_ac_pid/cmdline" 2>/dev/null | grep -q access_check_daemon.sh && kill -"$_ac_sig" "$_ac_pid" 2>/dev/null
+				done
+			done
+			rm -rf /tmp/clashoo/access_check_daemon.pid /tmp/clashoo/access_check_daemon.lock 2>/dev/null
+			rm -f /var/run/clashoo_bootstrap_pending 2>/dev/null
 		log_msg "Removing firewall rules" "清理防火墙规则"
 		backend_remove_rules >/dev/null 2>&1
 		cleanup_stale_core_nft >/dev/null 2>&1
@@ -1767,13 +2098,17 @@ stop_service(){
 		if _core_running; then
 			_kill_core
 		fi
+		for _cpid in $(pgrep -f /etc/clashoo 2>/dev/null); do
+			_ccl="$(tr '\0' ' ' < "/proc/$_cpid/cmdline" 2>/dev/null)"
+			printf '%s' "$_ccl" | grep -q -e '-d /etc/clashoo' -e '-f /etc/clashoo/config.yaml' && kill "$_cpid" 2>/dev/null
+		done
 		runtime_state_reset
 		runtime_state_set "health_status" "stopped"
 		runtime_state_set "health_detail" "service_stopped"
 		runtime_state_set "updated_at" "$(date +%s)"
 
 		# kick access check on stop (proxy_listening fast-paths to down; UI reflects stop within 5s)
-		/usr/share/clashoo/net/access_check_cache.sh >/dev/null 2>&1 &
+		(exec 1000>&-; /usr/share/clashoo/net/access_check_cache.sh >/dev/null 2>&1) &
 
 #===========================================================================================================================
 }
@@ -1793,9 +2128,7 @@ reload_service()
 		resolve_effective_tp_modes
 		runtime_state_record_preflight "mihomo"
 		backend_remove_rules 2>/dev/null
-		yml_dns_change 2>/dev/null
-		ip_rules 2>/dev/null
-		cp -f "$CONFIG_YAML" "${CLASH_CONFIG}/config.yaml" 2>/dev/null
+		( select_config && _start_prepare_config ) >/dev/null 2>&1
 		# hot-reload via mihomo REST API (config + addtype rules), no process restart or tunnel drop
 		local _dp _ds _lip
 		_dp="$(uci -q get clashoo.config.dash_port)"; [ -n "$_dp" ] || _dp=9090

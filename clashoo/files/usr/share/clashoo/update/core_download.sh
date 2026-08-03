@@ -13,6 +13,8 @@ CORE_INSTALLED=0
 CONNECT_TIMEOUT=15
 REQUEST_TIMEOUT=30
 DOWNLOAD_TIMEOUT=60
+LOW_SPEED_TIME=15
+LOW_SPEED_LIMIT=32768
 ATTEMPTS_PER_MIRROR=1
 MAX_TOTAL_SECONDS=200
 TAG_FETCH_RETRIES=2
@@ -32,7 +34,9 @@ finalize() {
 			# kernels stays a separate user action (set_core handles strategy).
 			if [ "$TARGET_DCORE" = "$(uci get clashoo.config.dcore 2>/dev/null)" ]; then
 				write_log "当前内核已更新，重启 Clashoo 生效"
-				/etc/init.d/clashoo restart >/dev/null 2>&1 || write_log "重启 Clashoo 失败"
+				if [ "$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]; then
+					/etc/init.d/clashoo restart >/dev/null 2>&1 || write_log "重启 Clashoo 失败"
+				fi
 			else
 				write_log "内核二进制已更新（非当前内核，不切换、不重启）"
 			fi
@@ -45,7 +49,9 @@ finalize() {
 				write_log "Smart 内核已就绪，自动启用 Smart 策略"
 			fi
 			write_log "内核已替换，重启 Clashoo"
-			/etc/init.d/clashoo restart >/dev/null 2>&1 || write_log "重启 Clashoo 失败"
+			if [ "$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]; then
+				/etc/init.d/clashoo restart >/dev/null 2>&1 || write_log "重启 Clashoo 失败"
+			fi
 		fi
 	fi
 	rm -f /var/run/core_update >/dev/null 2>&1
@@ -78,11 +84,15 @@ mirror_prefixes() {
 	# gh.idayer.com/ghproxy.net 限速截断；只保留 gh-proxy.com + ghfast.top 两条快通道。
 	# 末尾会自动追加裸 GitHub（download_with_mirrors 末尾会 push 一个空 prefix）。
 	custom="$(normalize_prefix "$MIRROR_PREFIX")"
-	if [ -n "$custom" ]; then
-		echo "$custom https://gh-proxy.com/ https://ghfast.top/"
-	else
-		echo "https://gh-proxy.com/ https://ghfast.top/"
-	fi
+	prefixes=""
+	for prefix in "$custom" "https://gh-proxy.com/" "https://ghfast.top/"; do
+		[ -n "$prefix" ] || continue
+		case " $prefixes " in
+			*" $prefix "*) ;;
+			*) prefixes="${prefixes}${prefixes:+ }${prefix}" ;;
+		esac
+	done
+	printf '%s\n' "$prefixes"
 }
 
 prefixed_url() {
@@ -119,9 +129,9 @@ download_file_try() {
 	proxy="$3"
 	if command -v curl >/dev/null 2>&1; then
 		if [ -n "$proxy" ]; then
-			curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" --retry 0 -A "Clash/OpenWRT" --proxy "$proxy" "$url" -o "$out"
+			curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" --speed-time "$LOW_SPEED_TIME" --speed-limit "$LOW_SPEED_LIMIT" --retry 0 -A "Clash/OpenWRT" --proxy "$proxy" "$url" -o "$out"
 		else
-			curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" --retry 0 -A "Clash/OpenWRT" "$url" -o "$out"
+			curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TIMEOUT" --speed-time "$LOW_SPEED_TIME" --speed-limit "$LOW_SPEED_LIMIT" --retry 0 -A "Clash/OpenWRT" "$url" -o "$out"
 		fi
 		return $?
 	fi
@@ -501,8 +511,7 @@ fetch_latest_tag() {
 	# 再试一次 releases/latest 的 302 跳转
 	u="$(prefixed_url "$p" "$web_url")"
 	if command -v curl >/dev/null 2>&1; then
-		tag="$(curl -fsSIL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$REQUEST_TIMEOUT" -A "Clash/OpenWRT" "$u" 2>/dev/null | sed -n 's#^[Ll]ocation: .*/releases/tag/\([^[:space:]
-]*\).*#\1#p' | head -n 1)"
+		tag="$(curl -fsSIL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$REQUEST_TIMEOUT" -A "Clash/OpenWRT" "$u" 2>/dev/null | sed -n 's#^[Ll]ocation: .*/releases/tag/\([^[:space:][:cntrl:]]*\).*#\1#p' | head -n 1)"
 	else
 		tag="$(wget -S --spider --timeout="$CONNECT_TIMEOUT" --no-check-certificate --user-agent="Clash/OpenWRT" "$u" 2>&1 | sed -n 's#^  Location: .*/releases/tag/\([^[:space:]]*\).*#\1#p' | head -n 1)"
 	fi
@@ -659,13 +668,19 @@ download_with_mirrors() {
 	outfile="$2"
 	verify_mode="${3:-gzip}"
 	proxy="$(detect_proxy)"
-	for p in $(mirror_prefixes) ""; do
+	if [ -n "$proxy" ]; then
+		download_prefixes="__direct__ $(mirror_prefixes)"
+	else
+		download_prefixes="$(mirror_prefixes) __direct__"
+	fi
+	for p in $download_prefixes; do
+		[ "$p" = "__direct__" ] && p=""
 		ensure_not_timed_out || return 1
 		u="$(prefixed_url "$p" "$base_url")"
 		i=1
 		while [ "$i" -le "$ATTEMPTS_PER_MIRROR" ]; do
 			ensure_not_timed_out || return 1
-			write_log "Downloading from ${u} (try ${i})"
+			write_log "Downloading from ${u}"
 			rm -f "$outfile" 2>/dev/null
 			if download_file_try "$u" "$outfile" "$proxy"; then
 				case "$verify_mode" in
@@ -777,6 +792,14 @@ verify_binary() {
 	return 1
 }
 
+installed_version_matches() {
+	version_file="$1"
+	expected_version="$2"
+	[ -r "$version_file" ] || return 1
+	[ -n "$expected_version" ] || return 1
+	[ "$(sed -n '1p' "$version_file" 2>/dev/null)" = "$expected_version" ]
+}
+
 install_with_rollback() {
 	tmpfile="$1"
 	target="$2"
@@ -832,7 +855,7 @@ if [ -n "$CUSTOM_CORE_URL" ]; then
 		TARGET="/usr/bin/mihomo"
 		VERSION_FILE="/usr/share/clashoo/mihomo_version"
 	else
-		TARGET="/usr/bin/clash-meta"
+		TARGET="/usr/bin/mihomo-stable"
 		VERSION_FILE="/usr/share/clashoo/clash_meta_version"
 	fi
 	TAG="custom"
@@ -955,7 +978,7 @@ elif [ "$CORETYPE" = "2" ]; then
 	[ -z "$TAG" ] && write_log "获取稳定版版本号失败" && exit 1
 	ASSET=$(pick_mihomo_asset "MetaCubeX/mihomo" "$TAG" "$(map_mihomo_arch "$MODELTYPE")" "stable")
 	URL="https://github.com/MetaCubeX/mihomo/releases/download/${TAG}/${ASSET}"
-	TARGET="/usr/bin/clash-meta"
+	TARGET="/usr/bin/mihomo-stable"
 	VERSION_FILE="/usr/share/clashoo/clash_meta_version"
  	VERSION_VALUE="$TAG"
 else
@@ -986,6 +1009,11 @@ if [ -z "$ASSET" ]; then
 fi
 write_log "版本标签：$TAG"
 write_log "匹配内核文件：$ASSET"
+
+if [ -n "$TARGET_DCORE" ] && installed_version_matches "$VERSION_FILE" "$VERSION_VALUE" && verify_binary "$TARGET"; then
+	write_log "内核已是最新版本：$VERSION_VALUE"
+	exit 0
+fi
 
 write_log "开始下载内核"
 if ! download_with_mirrors "$URL" /tmp/clash.gz; then

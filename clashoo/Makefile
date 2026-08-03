@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=clashoo
-PKG_SHORT_SHA:=6a52d23
-PKG_COMMIT_DATE:=2026.07.09
+PKG_SHORT_SHA:=cd05b74
+PKG_COMMIT_DATE:=2026.08.02
 
 PKG_VERSION:=$(PKG_COMMIT_DATE)~$(PKG_SHORT_SHA)
 PKG_RELEASE:=1
@@ -11,8 +11,8 @@ PKG_SOURCE:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA).tar.gz
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
 PKG_SOURCE_URL:=https://github.com/kenzok8/openwrt-clashoo/releases/download/mihomo-src
-PKG_SOURCE_VERSION:=6a52d23a13f763a6f1da25d82083c9d454fdeddd
-PKG_HASH:=a0fd4de6cbf21d8ae3fb2988de334dd7eb3cf6c3881187452a319831e0253573
+PKG_SOURCE_VERSION:=cd05b74fa6fe36f7227c1c540d6fb20bdfba3d51
+PKG_HASH:=7e853bfa089e1d7417f761ccde274dcdb43de85d41f218063066820cb5105067
 PKG_BUILD_VERSION:=alpha-$(PKG_SHORT_SHA)
 
 PKG_LICENSE:=GPL3.0+
@@ -70,6 +70,7 @@ define Package/clashoo/install
 	$(INSTALL_CONF) $(CURDIR)/files/etc/config/clashoo $(1)/etc/config/clashoo
 	$(INSTALL_DATA) $(CURDIR)/files/etc/config/clashoo $(1)/usr/share/clashoo/clashoo.default
 	$(CP) $(CURDIR)/files/usr/share/clashoo/* $(1)/usr/share/clashoo/
+	$(INSTALL_BIN) $(CURDIR)/files/usr/share/clashoo/migrate_lan_acl.sh $(1)/usr/share/clashoo/migrate_lan_acl.sh
 
 	$(RM) $(1)/usr/share/clashoo/dashboard
 	$(RM) $(1)/usr/share/clashoo/yacd
@@ -80,26 +81,18 @@ endef
 
 define Package/clashoo/postinst
 #!/bin/sh
-if [ -z "${IPKG_INSTROOT}" ]; then
+if [ -z "$${IPKG_INSTROOT}" ]; then
 	[ -x /usr/bin/mihomo ] && [ ! -x /usr/bin/clash-meta ] && ln -sf /usr/bin/mihomo /usr/bin/clash-meta
 	rm -f /usr/share/clashoo/check_luci_version.sh /usr/share/clashoo/check_clash_meta_version.sh /usr/share/clashoo/check_mihomo_core_version.sh
 	rm -f /usr/share/clashoo/cuslist.sh /usr/share/clashoo/groups.sh /usr/share/clashoo/load_groups.sh /usr/share/clashoo/panel_diag.sh
 	rm -f /usr/share/clashoo/rmlist.sh /usr/share/clashoo/uplist.sh /usr/share/clashoo/rpc_restart_async.sh /usr/share/clashoo/rpc_update_china_ip_async.sh
 	rm -rf /usr/share/clashoo/create
-	if [ "$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]; then
+	/usr/share/clashoo/migrate_lan_acl.sh >/dev/null 2>&1 || true
+	if [ "$$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]; then
 		/etc/init.d/clashoo enable 2>/dev/null || true
 	else
 		/etc/init.d/clashoo disable 2>/dev/null || true
 	fi
-fi
-exit 0
-endef
-
-define Package/clashoo/prerm
-#!/bin/sh
-if [ -z "${IPKG_INSTROOT}" ]; then
-	/etc/init.d/clashoo stop >/dev/null 2>&1
-	/etc/init.d/clashoo disable 2>/dev/null
 fi
 exit 0
 endef

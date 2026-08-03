@@ -516,7 +516,9 @@ return view.extend({
     if (!family)
       return _("Not running");
     var f = family === 'singbox' ? 'sing-box' : 'mihomo';
-    var c = channel === 'smart' ? _("Smart") : channel === 'alpha' ? _("Alpha") : _("Stable");
+    if (channel !== 'smart' && channel !== 'alpha')
+      return _(family === 'singbox' ? "sing-box Stable" : "mihomo Stable");
+    var c = channel === 'smart' ? _("Smart") : _("Alpha");
     return f + ' ' + c;
   },
 
@@ -579,16 +581,30 @@ return view.extend({
     if (targetCore === 'smart') {
       rpcCore = 'mihomo'; nextDcore = '1'; targetLabel = 'Smart';
     } else if (targetCore === 'singbox') {
-      rpcCore = 'singbox'; nextDcore = currentDcore === '5' ? '5' : '4'; targetLabel = 'sing-box';
+      rpcCore = 'singbox';
+      if (currentDcore === '5' && self._lastSt.has_singbox_alpha)
+        nextDcore = '5';
+      else if (currentDcore === '4' && self._lastSt.has_singbox_stable)
+        nextDcore = '4';
+      else
+        nextDcore = self._lastSt.has_singbox_stable ? '4' : '5';
+      targetLabel = 'sing-box';
     } else {
-      rpcCore = 'mihomo'; nextDcore = currentDcore === '3' ? '3' : '2'; targetLabel = 'mihomo';
+      rpcCore = 'mihomo';
+      if (currentDcore === '3' && self._lastSt.has_mihomo_alpha)
+        nextDcore = '3';
+      else if (currentDcore === '2' && self._lastSt.has_mihomo_stable)
+        nextDcore = '2';
+      else
+        nextDcore = self._lastSt.has_mihomo_stable ? '2' : '3';
+      targetLabel = 'mihomo';
     }
 
     self._coreSwitchBusy = true;
     self._coreSwitchMsg = _("Switching to ") + targetLabel + '...';
     self._refreshCoreSwitch();
 
-    return clashoo.setCore(rpcCore, nextDcore)
+    return clashoo.setCore(rpcCore, nextDcore, 'apply')
       .then(function (r) {
         if (r && r.success === false && r.error === 'smart_core_missing') {
           self._showCoreSwitchHint(_("Smart core not detected; updating the model will not install the core. Download the Smart build from the System page."));
@@ -603,13 +619,17 @@ return view.extend({
         self._lastSt = self._lastSt || {};
         self._lastSt.core_type = rpcCore;
         self._lastSt.dcore = nextDcore;          /* 乐观更新，避免重绘前 uci 缓存滞后 */
-        self._lastSt.running = false;
-        self._lastSt.health_status = 'stopped';
+        if (!r || !r.restarting) {
+          self._lastSt.running = false;
+          self._lastSt.health_status = 'stopped';
+        }
+        return r;
       })
-      .then(function () {
+      .then(function (r) {
         /* set_core auto-enables smart_auto_switch; init.d at boot
          * smart_inject 会把 url-test/load-balance 转成 Smart 策略，无需手动操作。 */
-        self._coreSwitchMsg = _("Switched to ") + targetLabel + _(", click Start to take effect");
+        if (!r || !r.restarting)
+          self._coreSwitchMsg = _("Switched to ") + targetLabel + _(", click Start to take effect");
         self._refreshCoreSwitch();
         return new Promise(function (resolve) { setTimeout(resolve, 500); });
       })
@@ -769,7 +789,7 @@ return view.extend({
         ? E('span', { 'class': 'cl-status-state cl-status-state-sync' }, _("Syncing"))
         : running
         ? E('span', { 'class': 'cl-status-state cl-status-state-run' }, _("Running 🟢"))
-        : E('span', { 'class': 'cl-status-state cl-status-state-stop' }, _("Stopped ⚪")),
+        : E('span', { 'class': 'cl-status-state cl-status-state-stop' }, _("Stopped") + ' ⚪'),
       E('span', { 'class': 'cl-status-note cl-status-note-core' }, configuredCoreLabel)
     ];
     if (st.runtime_degraded)
@@ -849,13 +869,14 @@ return view.extend({
     var tcpRaw = st.tcp_node || st.effective_tcp_mode || st.tcp_mode || uci.get('clashoo', 'config', 'tcp_mode') || 'off';
     var udpRaw = st.udp_node || st.effective_udp_mode || st.udp_mode || uci.get('clashoo', 'config', 'udp_mode') || tcpRaw;
     var stackRaw = st.stack_type || st.stack || uci.get('clashoo', 'config', 'stack') || 'system';
+    var tunEnabled = String(tcpRaw).toLowerCase() === 'tun' || String(udpRaw).toLowerCase() === 'tun';
 
     return {
       rows: [
         { proto: 'TCP', mode: this._tpModeName(tcpRaw), suffix: String(tcpRaw).toLowerCase() === 'off' ? '' : _("Mode") },
-        { proto: 'UDP', mode: this._tpModeName(udpRaw), suffix: String(udpRaw).toLowerCase() === 'off' ? '' : _("Mode") }
-      ],
-      stack: this._stackLabel(stackRaw)
+        { proto: 'UDP', mode: this._tpModeName(udpRaw), suffix: String(udpRaw).toLowerCase() === 'off' ? '' : _("Mode") },
+        { proto: _("Network Stack"), mode: tunEnabled ? this._stackLabel(stackRaw) : _("Not enabled"), suffix: tunEnabled ? _("Mode") : '' }
+      ]
     };
   },
 
@@ -868,8 +889,7 @@ return view.extend({
 
     var tcp = String(st.tcp_mode || uci.get('clashoo', 'config', 'tcp_mode') || '').toLowerCase();
     var udp = String(st.udp_mode || uci.get('clashoo', 'config', 'udp_mode') || tcp).toLowerCase();
-    var stack = String(st.stack || uci.get('clashoo', 'config', 'stack') || '').toLowerCase();
-    var wantsTun = tcp === 'tun' || udp === 'tun' || stack === 'mixed';
+    var wantsTun = tcp === 'tun' || udp === 'tun';
     return wantsTun && String(st.has_tun_device) === '0';
   },
 
@@ -882,13 +902,6 @@ return view.extend({
         E('span', { 'class': 'cl-mode-suffix' }, row.suffix)
       ]);
     });
-    rows.push(
-      E('div', { 'class': 'cl-mode-row cl-mode-row-stack' }, [
-        E('span', { 'class': 'cl-mode-proto' }, _("Network Stack")),
-        E('span', { 'class': 'cl-mode-name' }, data.stack),
-        E('span', { 'class': 'cl-mode-suffix' }, _("Mode"))
-      ])
-    );
     if (this._isTpModeDegraded(st))
       rows.push(E('div', { 'class': 'cl-check-updated cl-mode-degraded' }, _("Degraded")));
 
@@ -1298,17 +1311,17 @@ return view.extend({
 
     setText('cl-live-up-main', upRate.value);
     setText('cl-live-up-unit', upRate.unit);
-    setText('cl-live-up-foot', _("Total ") + this._fmtBytes(upTotal));
+    setText('cl-live-up-foot', _("Total %s").replace('%s', this._fmtBytes(upTotal)));
     setChart('cl-live-up-chart', upHist, 'up');
 
     setText('cl-live-down-main', downRate.value);
     setText('cl-live-down-unit', downRate.unit);
-    setText('cl-live-down-foot', _("Total ") + this._fmtBytes(downTotal));
+    setText('cl-live-down-foot', _("Total %s").replace('%s', this._fmtBytes(downTotal)));
     setChart('cl-live-down-chart', downHist, 'down');
 
     setText('cl-live-conn-main', '' + conn);
     setText('cl-live-conn-unit', '');
-    setText('cl-live-conn-foot', _("Memory usage ") + this._fmtMiB(mem));
+    setText('cl-live-conn-foot', _("Memory usage %s").replace('%s', this._fmtMiB(mem)));
     setChart('cl-live-conn-chart', connHist, 'conn');
 
     this._setLiveCardState('up', up, 512 * 1024, online);
@@ -1468,14 +1481,18 @@ return view.extend({
     ]);
   },
 
-  _timeAgoText: function (ts) {
+  _formatNumberText: function (tpl, n) {
+    return String(tpl).replace('%d', String(n));
+  },
+
+  _lastCheckText: function (ts) {
     var now = Math.floor(Date.now() / 1000);
     var delta = now - (parseInt(ts, 10) || 0);
     if (!isFinite(delta) || delta < 0) delta = 0;
-    if (delta < 5) return _("just now");
-    if (delta < 60) return delta + _(" seconds ago");
-    if (delta < 3600) return Math.floor(delta / 60) + _(" minutes ago");
-    return Math.floor(delta / 3600) + _(" hours ago");
+    if (delta < 5) return _("Last check: just now");
+    if (delta < 60) return this._formatNumberText(_("Last check: %d seconds ago"), delta);
+    if (delta < 3600) return this._formatNumberText(_("Last check: %d minutes ago"), Math.floor(delta / 60));
+    return this._formatNumberText(_("Last check: %d hours ago"), Math.floor(delta / 3600));
   },
 
   _renderCheckUpdated: function (ac) {
@@ -1484,7 +1501,7 @@ return view.extend({
     if (updatedAt <= 0) {
       return E('div', { 'class': 'cl-check-updated' }, _("Last check: initializing"));
     }
-    var msg = _("Last check: ") + this._timeAgoText(updatedAt);
+    var msg = this._lastCheckText(updatedAt);
     if (ac.updating && this._accessRefreshing)
       msg += _(" (refreshing)");
     return E('div', { 'class': 'cl-check-updated' }, msg);
@@ -1526,14 +1543,19 @@ return view.extend({
     var configs   = (cfgData && cfgData.configs) ? cfgData.configs : [];
     var current   = (cfgData && cfgData.current) || '';
     var proxyMode = st.proxy_mode  || 'rule';
-    var stackMode = st.stack || '';
-    var tunLike   = (st.tcp_mode === 'tun' || st.udp_mode === 'tun');
-    var tpMode    = 'fake-ip';
+    var tcpMode   = String(st.tcp_mode || '').toLowerCase();
+    var udpMode   = String(st.udp_mode || tcpMode).toLowerCase();
+    var stackMode = String(st.stack || '').toLowerCase();
+    var tpMode    = 'custom';
 
-    if (tunLike && stackMode === 'mixed')
-      tpMode = 'mixed';
-    else if (tunLike)
-      tpMode = 'tun';
+    if (tcpMode === 'tun' && udpMode === 'tun' && stackMode === 'mixed')
+      tpMode = 'tun-mixed';
+    else if (tcpMode === 'tun' && udpMode === 'tun' && stackMode === 'gvisor')
+      tpMode = 'tun-gvisor';
+    else if (tcpMode === 'tun' && udpMode === 'tun')
+      tpMode = 'tun-system';
+    else if (tcpMode === 'redirect' && udpMode === 'tproxy')
+      tpMode = 'fake-ip';
     var panelType = st.panel_type  || 'zashboard';
     var panelUrl  = this._dashboardUrl(st);
     var panels    = ['metacubexd', 'yacd', 'zashboard', 'razord'];
@@ -1541,9 +1563,12 @@ return view.extend({
     var mkSel = function (opts, val, fn) {
       return E('select', { 'class': 'cbi-input-select', change: fn },
         opts.map(function (o) {
-          return E('option', { value: o[0], selected: o[0] === val ? '' : null }, o[1]);
+          return E('option', { value: o[0], selected: o[0] === val ? '' : null, disabled: o[2] ? '' : null }, o[1]);
         }));
     };
+    var tpModeOptions = [['fake-ip','Fake-IP'],['tun-system','System'],['tun-gvisor','gVisor'],['tun-mixed','Mixed']];
+    if (tpMode === 'custom')
+      tpModeOptions.unshift(['custom',_("Custom")]);
 
     var panelStatusEl = E('span', { 'class': 'cl-panel-status' }, '');
 
@@ -1576,24 +1601,29 @@ return view.extend({
       ]),
       E('div', { 'class': 'cl-ctrl' }, [
         E('label', {}, _("Run Mode")),
-        mkSel([['fake-ip','Fake-IP'],['tun',_("TUN Mode")],['mixed',_("Mixed Mode")]], tpMode,
+        mkSel(tpModeOptions, tpMode,
           function (ev) {
             var mode = ev.target.value;
+            if (mode === 'custom')
+              return;
             ev.target.disabled = true;
             self._op = 'mode';
             self._lastSt = self._lastSt || {};
-            if (mode === 'mixed') {
+            if (mode === 'tun-mixed') {
               self._lastSt.tcp_mode = 'tun';
               self._lastSt.udp_mode = 'tun';
               self._lastSt.stack = 'mixed';
-            } else if (mode === 'tun') {
+            } else if (mode === 'tun-gvisor') {
+              self._lastSt.tcp_mode = 'tun';
+              self._lastSt.udp_mode = 'tun';
+              self._lastSt.stack = 'gvisor';
+            } else if (mode === 'tun-system') {
               self._lastSt.tcp_mode = 'tun';
               self._lastSt.udp_mode = 'tun';
               self._lastSt.stack = 'system';
             } else {
               self._lastSt.tcp_mode = 'redirect';
               self._lastSt.udp_mode = 'tproxy';
-              self._lastSt.stack = 'gvisor';
             }
             clashoo.setMode(mode).then(function (r) {
               if (r && r.error)
@@ -1858,7 +1888,7 @@ return view.extend({
   _opPhase: function (opKey, st) {
     var hd = (st && st.health_detail) || '';
     if (opKey === 'stop') {
-      if (st && st.running === false) return _("Stopped ✓");
+      if (st && st.running === false) return _("Stopped") + ' ✓';
       return _("Stopping…");
     }
     if (!st || st.running !== true) return _("Starting core…");
@@ -1921,7 +1951,7 @@ return view.extend({
         st = st || {};
         var elapsed = Date.now() - started;
         if (opKey === 'stop') {
-          if (st.running === false)          return finish(_("Stopped ⚪"));
+          if (st.running === false)          return finish(_("Stopped") + ' ⚪');
         } else {
           if (st.running === true)           return finish(_("Running 🟢"));
           if (st.health_status === 'fail')   return finish(null);

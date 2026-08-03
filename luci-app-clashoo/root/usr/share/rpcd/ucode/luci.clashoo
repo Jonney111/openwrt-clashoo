@@ -6,6 +6,7 @@ import { access, popen, glob, readfile, writefile, stat, unlink, open } from 'fs
 import { cursor } from 'uci';
 
 const BINARY_PATHS = [
+'/usr/bin/mihomo-stable',
 '/usr/bin/mihomo',
 '/usr/bin/clash-meta',
 '/usr/bin/clash',
@@ -172,6 +173,24 @@ return '';
 }
 
 function find_binary_for_family(family) {
+if (family === 'mihomo') {
+	let pid = procd_instance_pid('clashoo');
+	if (pid > 0) {
+		let p = popen('readlink -f /proc/' + pid + '/exe 2>/dev/null');
+		if (p) {
+			let running = trim(p.read('all'));
+			p.close();
+			if (running && access(running, 'x')) return running;
+		}
+	}
+	let channel = get_core_channel('mihomo');
+	if (channel == 'stable' && access('/usr/bin/mihomo-stable', 'x')) return '/usr/bin/mihomo-stable';
+	if (channel == 'alpha' && access('/usr/bin/mihomo', 'x')) return '/usr/bin/mihomo';
+	if (channel == 'smart') {
+		for (let path in SMART_BINARY_PATHS)
+			if (access(path, 'x')) return path;
+	}
+}
 let paths = family === 'singbox' ? SINGBOX_BINARY_PATHS : BINARY_PATHS;
 for (let path in paths)
 if (access(path, 'x')) return path;
@@ -252,13 +271,20 @@ legacy = dcore == '1' ? '1' : dcore == '3' ? '3' : '2';
 c.set('clashoo', 'config', 'core', legacy);
 }
 
+function has_mihomo_stable() {
+if (access('/usr/bin/mihomo-stable', 'x')) return true;
+if (system("[ -x /usr/bin/clash-meta ] && [ ! -L /usr/bin/clash-meta ]") != 0) return false;
+let version = get_core_version('/usr/bin/clash-meta');
+return !!version && !match(version, /(alpha|beta|rc|pre|smart)/i);
+}
+
 function core_target_error(core, dcore) {
 if (core == 'mihomo' && dcore == '1') {
 	if (find_smart_binary()) return null;
 	return { error: 'smart_core_missing', message: '未检测到 Smart 内核，请先在“组件更新”中安装 Smart' };
 }
 if (core == 'mihomo' && dcore == '2') {
-	if (access('/usr/bin/clash-meta', 'x') || access('/etc/clashoo/clash-meta', 'x')) return null;
+	if (has_mihomo_stable()) return null;
 	return { error: 'mihomo_stable_missing', message: '未检测到 mihomo 稳定版，请先在“组件更新”中更新稳定版' };
 }
 if (core == 'mihomo' && dcore == '3') {
@@ -606,8 +632,6 @@ return updated <= 0 || (updated + ACCESS_CACHE_TTL) < now;
 }
 
 function trigger_access_cache_refresh() {
-// Touch updating flag (empty) before spawning so concurrent polls skip; empty content
-// keeps cache.sh's pid-based lock recovery intact (a timestamp would look like a dead pid).
 system('mkdir -p /tmp/clashoo 2>/dev/null; : > ' + ACCESS_UPDATING_FLAG + ' 2>/dev/null; nice -n 19 sh /usr/share/clashoo/net/access_check_cache.sh >/dev/null 2>&1 &');
 }
 
@@ -769,8 +793,8 @@ return !!match(ver || '', /(alpha|beta|rc|pre|smart)/i);
 function component_installed_versions(id) {
 let out = {};
 if (id == 'mihomo') {
-	let stable = read_first_line('/usr/share/clashoo/clash_meta_version');
-	if (!stable && access('/usr/bin/clash-meta', 'x')) stable = core_short_version('/usr/bin/clash-meta');
+	let stable = access('/usr/bin/mihomo-stable', 'x') ? read_first_line('/usr/share/clashoo/clash_meta_version') : '';
+	if (!stable && access('/usr/bin/mihomo-stable', 'x')) stable = core_short_version('/usr/bin/mihomo-stable');
 	if (is_prerelease_label(stable)) stable = '';
 	let alpha = read_first_line('/usr/share/clashoo/mihomo_version');
 	if (match(alpha, /^smart-/)) alpha = '';
@@ -889,21 +913,21 @@ if (geoip_src != '1') {
 let cdp = trim(shell_read('. /usr/share/clashoo/update/proxy_lib.sh; clashoo_detect_proxy 2>/dev/null') || '');
 let px = cdp ? ('--proxy ' + shell_quote(cdp) + ' ') : '';
 let cmd = '';
-cmd += "curl -fsS -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + 'MetaCubeX/mihomo/releases/latest')  + ' >' + shell_quote(dir + '/ms') + ' 2>/dev/null &\n';
-cmd += "curl -fsS -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + 'SagerNet/sing-box/releases/latest') + ' >' + shell_quote(dir + '/ss') + ' 2>/dev/null &\n';
-cmd += 'curl -fsSL -m 20 ' + shell_quote(GH + 'MetaCubeX/mihomo/releases/expanded_assets/Prerelease-Alpha') + ' >' + shell_quote(dir + '/ma') + ' 2>/dev/null &\n';
-cmd += 'curl -fsSL -m 20 ' + shell_quote(GH + 'vernesong/mihomo/releases/expanded_assets/Prerelease-Alpha') + ' >' + shell_quote(dir + '/sm') + ' 2>/dev/null &\n';
-cmd += 'curl -fsSL -m 12 ' + shell_quote(GH + 'SagerNet/sing-box/releases.atom') + ' >' + shell_quote(dir + '/sa') + ' 2>/dev/null &\n';
+cmd += "curl -fsS --connect-timeout 4 -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + 'MetaCubeX/mihomo/releases/latest')  + ' >' + shell_quote(dir + '/ms') + ' 2>/dev/null &\n';
+cmd += "curl -fsS --connect-timeout 4 -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + 'SagerNet/sing-box/releases/latest') + ' >' + shell_quote(dir + '/ss') + ' 2>/dev/null &\n';
+cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote(GH + 'MetaCubeX/mihomo/releases/expanded_assets/Prerelease-Alpha') + ' >' + shell_quote(dir + '/ma') + ' 2>/dev/null &\n';
+cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote(GH + 'vernesong/mihomo/releases/expanded_assets/Prerelease-Alpha') + ' >' + shell_quote(dir + '/sm') + ' 2>/dev/null &\n';
+cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote(GH + 'SagerNet/sing-box/releases.atom') + ' >' + shell_quote(dir + '/sa') + ' 2>/dev/null &\n';
 if (pkg_arch)
 	for (let sdk in sdks)
-		cmd += 'curl -fsSL -m 8 ' + shell_quote(FEED_BASE + '/' + sdk + '/' + pkg_arch + '/' + FEED_MANIFEST_NAME) + ' >' + shell_quote(dir + '/b_' + sdk) + ' 2>/dev/null &\n';
+		cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote(FEED_BASE + '/' + sdk + '/' + pkg_arch + '/' + FEED_MANIFEST_NAME) + ' >' + shell_quote(dir + '/b_' + sdk) + ' 2>/dev/null &\n';
 // GitHub API 兜底，避免 expanded_assets 在部分网络下超时
-cmd += 'curl -fsSL -m 12 ' + shell_quote('https://api.github.com/repos/' + GH_CLASHOO_REPO + '/releases/latest') + ' >' + shell_quote(dir + '/gc') + ' 2>/dev/null &\n';
+cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote('https://api.github.com/repos/' + GH_CLASHOO_REPO + '/releases/latest') + ' >' + shell_quote(dir + '/gc') + ' 2>/dev/null &\n';
 // lgbm —— remote model sha256 from the release assets page (each asset lists its digest)
-cmd += 'curl -fsSL -m 12 ' + shell_quote(GH + 'vernesong/mihomo/releases/expanded_assets/LightGBM-Model') + ' >' + shell_quote(dir + '/lg') + ' 2>/dev/null &\n';
+cmd += 'curl -fsSL --connect-timeout 4 -m 8 ' + shell_quote(GH + 'vernesong/mihomo/releases/expanded_assets/LightGBM-Model') + ' >' + shell_quote(dir + '/lg') + ' 2>/dev/null &\n';
 // geoip —— 源仓库 releases/latest 的 302 tag（多为日期串）
 if (geoip_repo)
-	cmd += "curl -fsS -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + geoip_repo + '/releases/latest') + ' >' + shell_quote(dir + '/gi') + ' 2>/dev/null &\n';
+	cmd += "curl -fsS --connect-timeout 4 -o /dev/null -w '%{redirect_url}' -m 8 " + shell_quote(GH + geoip_repo + '/releases/latest') + ' >' + shell_quote(dir + '/gi') + ' 2>/dev/null &\n';
 // inject the local-core proxy into every probe above (no-op when px is empty)
 if (px) cmd = replace(cmd, 'curl ', 'curl ' + px);
 cmd += 'wait\n';
@@ -1912,23 +1936,22 @@ return res;
 set_mode: {
 args: { mode: 'mode' },
 call: function(req) {
-let mode = req.args?.mode || 'fake-ip';
-if (mode != 'fake-ip' && mode != 'tun' && mode != 'mixed')
-return { error: 'invalid mode' };
-let c = cursor(); c.load('clashoo');
-if (mode == 'tun' || mode == 'mixed') {
-c.set('clashoo', 'config', 'tun_mode', '1');
-c.set('clashoo', 'config', 'tcp_mode', 'tun');
-c.set('clashoo', 'config', 'udp_mode', 'tun');
-c.set('clashoo', 'config', 'stack', mode == 'mixed' ? 'mixed' : 'system');
-c.set('clashoo', 'config', 'enable_udp', '1');
-c.set('clashoo', 'config', 'enhanced_mode', 'fake-ip');
+	let mode = req.args?.mode || 'fake-ip';
+	if (mode != 'fake-ip' && mode != 'tun-system' && mode != 'tun-gvisor' && mode != 'tun-mixed')
+	return { error: 'invalid mode' };
+	let c = cursor(); c.load('clashoo');
+	if (mode == 'tun-system' || mode == 'tun-gvisor' || mode == 'tun-mixed') {
+	c.set('clashoo', 'config', 'tun_mode', '1');
+	c.set('clashoo', 'config', 'tcp_mode', 'tun');
+	c.set('clashoo', 'config', 'udp_mode', 'tun');
+	c.set('clashoo', 'config', 'stack', mode == 'tun-mixed' ? 'mixed' : (mode == 'tun-gvisor' ? 'gvisor' : 'system'));
+	c.set('clashoo', 'config', 'enable_udp', '1');
+	c.set('clashoo', 'config', 'enhanced_mode', 'fake-ip');
 } else {
-c.set('clashoo', 'config', 'tun_mode', '0');
-c.set('clashoo', 'config', 'tcp_mode', 'redirect');
-c.set('clashoo', 'config', 'udp_mode', 'tproxy');
-c.set('clashoo', 'config', 'stack', 'gvisor');
-c.set('clashoo', 'config', 'enhanced_mode', 'fake-ip');
+	c.set('clashoo', 'config', 'tun_mode', '0');
+	c.set('clashoo', 'config', 'tcp_mode', 'redirect');
+	c.set('clashoo', 'config', 'udp_mode', 'tproxy');
+	c.set('clashoo', 'config', 'enhanced_mode', 'fake-ip');
 }
 c.commit('clashoo');
 system('uci commit clashoo >/dev/null 2>&1');
@@ -2479,12 +2502,17 @@ let api = get_clash_api_auth();
 	if (configured_core == 'singbox' && config) conf_name = config;
 	let dcore = c.get('clashoo', 'config', 'dcore') || '2';
 
-let status_payload = { running, dash_port, dash_pass, proxy_mode, conf_path: conf_name, config,
-                       panel_type, tcp_mode, udp_mode, stack,
-                       effective_tcp_mode, effective_udp_mode,
+	let status_payload = { running, dash_port, dash_pass, proxy_mode, conf_path: conf_name, config,
+	                       panel_type, tcp_mode, udp_mode, stack,
+	                       effective_tcp_mode, effective_udp_mode,
 	                       runtime_degraded, runtime_degrade_reason,
 	                       health_status, health_detail, has_tun_device,
-	                       core_type: configured_core, dcore, local_ip };
+	                       core_type: configured_core, dcore, local_ip,
+	                       has_mihomo_stable: has_mihomo_stable(),
+	                       has_mihomo_alpha: !!access('/usr/bin/mihomo', 'x'),
+	                       has_singbox_stable: !!access('/usr/bin/sing-box-stable', 'x'),
+	                       has_singbox_alpha: !!access('/usr/bin/sing-box-alpha', 'x'),
+	                       has_smart: !!find_smart_binary() };
 
 	let stats_payload = { ok: false, running: running };
 	if (running) {
@@ -2554,6 +2582,7 @@ backend:           detect_firewall_backend(),
 missing_fw4_tools: detect_missing_fw4_tools(),
 has_singbox:       !!find_binary_for_family('singbox'),
 has_mihomo:        !!access('/usr/bin/mihomo', 'x'),
+has_mihomo_stable: has_mihomo_stable(),
 has_smart:         !!find_smart_binary(),
 has_clash_meta:    !!access('/usr/bin/clash-meta', 'x'),
 has_builtin_core:  !!access('/etc/clashoo/clash', 'x')
@@ -2818,6 +2847,7 @@ if (unlink(target) === null) return { success: false, error: 'delete failed' };
 if (type == '1') {
 unlink(target + '.info');
 unlink(target + '.url');
+unlink(target + '.ua');
 }
 }
 else if (type != '1') {
@@ -2828,6 +2858,7 @@ if (type == '1' && alt_target != target && access(alt_target, 'r')) {
 unlink(alt_target);
 unlink(alt_target + '.info');
 unlink(alt_target + '.url');
+unlink(alt_target + '.ua');
 }
 
 let c = cursor();
@@ -3435,47 +3466,6 @@ return { success: (code == '204' || code == '200'), code };
 }
 },
 
-smart_upgrade_lgbm: {
-call: function() {
-system('sh /usr/share/clashoo/update/lgbm_update.sh >/tmp/lgbm_update.log 2>&1 &');
-return { success: true };
-}
-},
-
-smart_upgrade_lgbm_status: {
-call: function() {
-let log_path   = '/tmp/lgbm_update.log';
-let model_path = '/etc/clashoo/Model.bin';
-// 用括号正则避免匹配 grep 自身；busybox ash 下比 pgrep -f 更可靠
-let p = popen('ps w 2>/dev/null | grep "[l]gbm_update.sh" | head -1');
-let line = ''; if (p) { line = trim(p.read('all')); p.close(); }
-let running = (line && line != '');
-let last_line = '';
-let p2 = popen('tail -1 ' + shell_quote(log_path) + ' 2>/dev/null');
-if (p2) { last_line = trim(p2.read('all')); p2.close(); }
-let version = ''; let size_kb = 0;
-let s = stat(model_path);
-if (s) {
-  size_kb = int(s.size / 1024);
-  let p3 = popen('date -d @' + s.mtime + ' "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r ' + shell_quote(model_path) + ' "+%Y-%m-%d %H:%M:%S" 2>/dev/null');
-  if (p3) { version = trim(p3.read('all')); p3.close(); }
-}
-return { running, last_line, version, size_kb, has_model: !!s };
-}
-},
-
-smart_model_status: {
-call: function() {
-let model_path = '/etc/clashoo/Model.bin';
-let s = stat(model_path);
-if (!s) return { has_model: false, version: '' };
-let p = popen('date -d @' + s.mtime + ' "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r ' + shell_quote(model_path) + ' "+%Y-%m-%d %H:%M:%S" 2>/dev/null');
-let ts = '';
-if (p) { ts = trim(p.read('all')); p.close(); }
-return { has_model: true, version: ts || ('' + s.mtime), size_kb: int(s.size / 1024) };
-}
-},
-
 /* ── sing-box profile management ── */
 
 list_singbox_profiles: {
@@ -3654,6 +3644,7 @@ if (!access(path, 'r')) return { success: false, error: 'not found' };
 if (unlink(path) === null) return { success: false, error: 'delete_failed' };
 unlink(path + '.info');
 unlink(path + '.url');
+unlink(path + '.ua');
 let c = cursor(); c.load('clashoo');
 if (c.get('clashoo', 'config', 'singbox_active') == name) {
   c.delete('clashoo', 'config', 'singbox_active');
@@ -3712,6 +3703,7 @@ if (writefile(path, raw) === null) {
   return { success: false, message: '保存失败' };
 }
 writefile(path + '.url', sub_url);
+writefile(path + '.ua', sub_ua);
 if (access(tmp_hdr, 'r')) {
   let hdr_raw = readfile(tmp_hdr) || '';
   for (let line in split(hdr_raw, '\n')) {

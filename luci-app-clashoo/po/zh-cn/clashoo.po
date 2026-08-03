@@ -30,23 +30,14 @@ msgstr " 个文件）"
 msgid " groups"
 msgstr " 组"
 
-msgid " hours ago"
-msgstr " 小时前"
-
 msgid " latency test failed: "
 msgstr " 测速失败: "
-
-msgid " minutes ago"
-msgstr " 分钟前"
 
 msgid " saved"
 msgstr " 已保存"
 
 msgid " seconds"
 msgstr " 秒"
-
-msgid " seconds ago"
-msgstr " 秒前"
 
 msgid " switch error"
 msgstr " 切换异常"
@@ -59,9 +50,6 @@ msgstr " 更新成功"
 
 msgid " updated"
 msgstr " 已更新"
-
-msgid " updates available"
-msgstr " 项可更新"
 
 msgid "$1 updated"
 msgstr "$1 已更新"
@@ -93,11 +81,11 @@ msgstr "；更新 "
 msgid "<em>(empty)</em>"
 msgstr "<em>（空）</em>"
 
-msgid "<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;background:rgba(128,128,128,0.16);color:var(--cl-label-muted,#888);\">Redir-Host</span> China traffic bypasses the core at firewall level; DNS behavior is slightly weaker. Choose as needed."
-msgstr "<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;background:rgba(128,128,128,0.16);color:var(--cl-label-muted,#888);\">Redir-Host</span> 大陆流量在防火墙层直接绕过核心，DNS 体验略弱。按需选择。"
+msgid "China traffic bypasses the core at firewall level; DNS behavior is slightly weaker. Choose as needed."
+msgstr "大陆流量在防火墙层直接绕过核心，DNS 体验略弱。按需选择。"
 
-msgid "<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--primary-rgb),0.14);color:var(--cl-primary,#3886a1);\">Fake-IP · Recommended</span> Fast resolution and accurate routing; China routing is handled by the core.<br />"
-msgstr "<span style=\"display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600;background:rgba(var(--primary-rgb),0.14);color:var(--cl-primary,#3886a1);\">Fake-IP · 推荐</span> 解析快、分流准，大陆分流由内核完成。<br />"
+msgid "Fast resolution and accurate routing; China routing is handled by the core."
+msgstr "解析快、分流准，大陆分流由内核完成。"
 
 msgid "<strong>Note:</strong> Proxy node domains still use direct DNS for startup resolution, not for normal client domain queries.<br>"
 msgstr "<strong>说明：</strong>代理节点域名仍使用直连 DNS 启动解析，不用于客户端普通域名查询。<br>"
@@ -129,8 +117,8 @@ msgstr "高级 DNS"
 msgid "Advanced Settings (core / data components)"
 msgstr "高级设置（内核 / 数据组件）"
 
-msgid "After fetching, click Update on the corresponding item in the Configuration Files tab to fetch the latest configuration again."
-msgstr "拉取后可在「配置文件」标签的对应条目点击「更新」重新拉取最新配置。"
+msgid "For providers that directly offer sing-box JSON subscriptions, or links already converted by external tools. After fetching, click Update on the corresponding item in the Configuration Files tab to fetch the latest configuration again."
+msgstr "适用于机场直接提供 sing-box JSON 格式订阅、或已用外部工具转换好的链接。拉取后可在「配置文件」标签的对应条目点击「更新」重新拉取最新配置。"
 
 msgid "All"
 msgstr "全部"
@@ -203,6 +191,9 @@ msgstr "已还原备份，正在重启服务"
 
 msgid "Basic DNS"
 msgstr "基础 DNS"
+
+msgid "Block QUIC"
+msgstr "阻断 QUIC"
 
 msgid "Blocklist"
 msgstr "黑名单"
@@ -390,8 +381,8 @@ msgstr "当前配置为自定义文件，无需更新订阅"
 msgid "Current version: "
 msgstr "当前版本: "
 
-msgid "Current: "
-msgstr "当前："
+msgid "Current: %s"
+msgstr "当前：%s"
 
 msgid "Custom"
 msgstr "自定义"
@@ -470,6 +461,12 @@ msgstr "DNS 监听端口"
 
 msgid "DNS Policy"
 msgstr "分流解析策略"
+
+msgid "DNS queries follow the routing rules, so overseas domains resolve through the proxy instead of a polluted result. Requires proxy-server-nameserver."
+msgstr "DNS 查询按分流规则走，境外域名经代理解析，避免拿到污染结果。需要配置节点域名解析（proxy-server-nameserver）。"
+
+msgid "DNS Respect Rules"
+msgstr "DNS 遵循分流规则"
 
 msgid "Domain / IP"
 msgstr "域名 / IP"
@@ -606,6 +603,9 @@ msgstr "故障转移"
 msgid "Fallback GeoIP Filter"
 msgstr "Fallback GeoIP 过滤"
 
+msgid "Bootstrap"
+msgstr "引导 DNS"
+
 msgid "Fetch and Apply"
 msgstr "拉取并应用"
 
@@ -632,9 +632,6 @@ msgstr "修复失败: "
 
 msgid "Fixed deprecated fields: "
 msgstr "已修复废弃字段: "
-
-msgid "For providers that directly offer sing-box JSON subscriptions, or links already converted by external tools.\n"
-msgstr "适用于机场直接提供 sing-box JSON 格式订阅、或已用外部工具转换好的链接。\n"
 
 msgid "Force ASN lookup and prefer target ASN information when selecting nodes for a more stable experience"
 msgstr "选择节点时强制查找并优先使用目标的 ASN 信息，以获得更稳定的体验"
@@ -750,11 +747,23 @@ msgstr "不确定时保持默认。"
 msgid "LAN Control"
 msgstr "局域网控制"
 
-msgid "Last check: "
-msgstr "上次检查："
+msgid "%d updates available"
+msgstr "发现 %d 项可更新"
 
 msgid "Last check: initializing"
 msgstr "上次检查：初始化中"
+
+msgid "Last check: just now"
+msgstr "上次检查：刚刚"
+
+msgid "Last check: %d seconds ago"
+msgstr "上次检查：%d 秒前"
+
+msgid "Last check: %d minutes ago"
+msgstr "上次检查：%d 分钟前"
+
+msgid "Last check: %d hours ago"
+msgstr "上次检查：%d 小时前"
 
 msgid "Last run: "
 msgstr "上次执行："
@@ -783,8 +792,8 @@ msgstr "日志"
 msgid "Match Rule"
 msgstr "匹配规则"
 
-msgid "Memory usage "
-msgstr "内存使用 "
+msgid "Memory usage %s"
+msgstr "内存使用 %s"
 
 msgid "mihomo restarted successfully, please wait for servers to come online."
 msgstr "mihomo 重启成功，请等待服务器上线！"
@@ -864,6 +873,9 @@ msgstr "节点权重加成，<1 表示较低优先级，>1 表示较高优先级
 msgid "Not installed"
 msgstr "未安装"
 
+msgid "Not enabled"
+msgstr "未启用"
+
 msgid "Not running"
 msgstr "未运行"
 
@@ -876,6 +888,9 @@ msgstr "仅覆盖已记录来源链接的订阅，不会生成重复文件。"
 msgid "Open Dashboard"
 msgstr "打开面板"
 
+msgid "TUN stack is used when either TCP or UDP mode is TUN."
+msgstr "TCP 或 UDP 任意一个选择 TUN 时，该栈设置才会生效。"
+
 msgid "OpenClash is enabled; disable it first to avoid rule conflicts"
 msgstr "OpenClash 已启用，请先停用以避免规则冲突"
 
@@ -887,6 +902,9 @@ msgstr "其他配置文件（上传 / 覆写输出）"
 
 msgid "Output file name (without extension, blank to auto-fill)"
 msgstr "输出文件名（不含扩展名，留空自动填写）"
+
+msgid "Overseas"
+msgstr "境外"
 
 msgid "Overseas Encrypted DNS (anti-pollution)"
 msgstr "国外加密 DNS（防污染）"
@@ -963,6 +981,21 @@ msgstr "协议"
 msgid "Proxy"
 msgstr "代理"
 
+msgid "DNS Takeover"
+msgstr "DNS 接管"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "MAC"
+msgstr "MAC"
+
+msgid "Rules are matched from top to bottom. Unmatched devices use DNS takeover and proxy by default."
+msgstr "规则按从上到下的顺序匹配；未命中的设备默认接管 DNS 并走代理。"
+
 msgid "Proxy Authentication"
 msgstr "代理认证"
 
@@ -996,6 +1029,9 @@ msgstr "已就绪 ✓"
 msgid "Recommended "
 msgstr "推荐 "
 
+msgid "Recommended"
+msgstr "推荐"
+
 msgid "Recommended blank"
 msgstr "推荐留空"
 
@@ -1014,14 +1050,17 @@ msgstr "普通域名仅使用境外 DNS 并让 DNS 连接遵守代理规则，�
 msgid "Regularly update rule data"
 msgstr "定时更新规则数据"
 
+msgid "Reject proxied UDP 443 so some apps fall back to TCP. Try only when downloads or video stall."
+msgstr "拒绝代理链路中的 UDP 443，让部分 App 回落 TCP。仅在下载/视频卡住时尝试开启。"
+
 msgid "Relay"
 msgstr "链式代理"
 
 msgid "Remote Template"
 msgstr "远程模板"
 
-msgid "Remote: "
-msgstr "远端："
+msgid "Remote: %s"
+msgstr "远端：%s"
 
 msgid "Removing Cron scheduled tasks"
 msgstr "删除 Cron → 计划任务"
@@ -1218,11 +1257,8 @@ msgstr "停止服务"
 msgid "Stopped (not enabled at boot)"
 msgstr "已停止（开机不自启动）"
 
-msgid "Stopped ⚪"
-msgstr "已停止 ⚪"
-
-msgid "Stopped ✓"
-msgstr "已停止 ✓"
+msgid "Stopped"
+msgstr "已停止"
 
 msgid "Stopping client..."
 msgstr "正在停止客户端..."
@@ -1267,6 +1303,9 @@ msgid "Subscription URLs (one per line)"
 msgstr "订阅链接（多条用换行分隔）"
 
 msgid "Switch"
+msgstr "切换"
+
+msgid "Switch Profile"
 msgstr "切换"
 
 msgid "Switch configuration failed: "
@@ -1329,8 +1368,8 @@ msgstr "耗时"
 msgid "Timeout waiting for new core to start, please check the core log"
 msgstr "等待新内核启动超时，请查看内核日志"
 
-msgid "Total "
-msgstr "总计 "
+msgid "Total %s"
+msgstr "总计 %s"
 
 msgid "TPROXY Port"
 msgstr "TPROXY 端口"
@@ -1346,6 +1385,9 @@ msgstr "透明代理"
 
 msgid "TUN Mode"
 msgstr "TUN 模式"
+
+msgid "TUN Network Stack"
+msgstr "TUN 网络栈"
 
 msgid "Type"
 msgstr "类型"
@@ -1368,8 +1410,8 @@ msgstr "立即更新全部"
 msgid "Update available"
 msgstr "可更新"
 
-msgid "Update components individually to facilitate locating failures. Click \"Check for Updates\" to get the latest version."
-msgstr "按组件单独更新，便于定位失败。点「检查更新」获取最新版本。"
+msgid "Update components individually. Click Check Updates to refresh versions."
+msgstr "按组件单独更新，便于定位失败。点击「检查更新」刷新版本。"
 
 msgid "Update failed"
 msgstr "更新失败"
