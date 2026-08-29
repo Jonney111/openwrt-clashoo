@@ -176,7 +176,16 @@ msgstr ""
 msgid "Backup and Restore"
 msgstr ""
 
+msgid "Backup file is too large"
+msgstr ""
+
+msgid "Backup exported"
+msgstr ""
+
 msgid "Backup exported ("
+msgstr ""
+
+msgid "Backup files contain subscription and node credentials. Store them securely."
 msgstr ""
 
 msgid "Backup restored, restarting service"
@@ -194,10 +203,13 @@ msgstr ""
 msgid "Blocklist (listed items use real IP, default)"
 msgstr ""
 
-msgid "Blocklist/allowlist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: enter items with the same syntax as rules, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat."
+msgid "Blocklist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: entries are converted to rule syntax automatically, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat. Allowlist mode drops the shipped defaults (they mean the opposite there), so enter your own domains."
 msgstr ""
 
-msgid "Bypass China IP"
+msgid "Bypass China IPv4"
+msgstr ""
+
+msgid "Bypass China IPv6"
 msgstr ""
 
 msgid "Bypass Ports"
@@ -878,6 +890,9 @@ msgstr ""
 msgid "Only subscriptions with recorded source URLs are overwritten; no duplicate files are created."
 msgstr ""
 
+msgid "Only .tar.gz and legacy .json backup files are supported"
+msgstr ""
+
 msgid "Open Dashboard"
 msgstr ""
 
@@ -1442,6 +1457,9 @@ msgstr ""
 msgid "Updating…"
 msgstr ""
 
+msgid "Unable to read backup file"
+msgstr ""
+
 msgid "Upload"
 msgstr ""
 
@@ -1452,6 +1470,9 @@ msgid "Upload failed"
 msgstr ""
 
 msgid "Upload failed: "
+msgstr ""
+
+msgid "Upload offset mismatch"
 msgstr ""
 
 msgid "Upload JSON Configuration"

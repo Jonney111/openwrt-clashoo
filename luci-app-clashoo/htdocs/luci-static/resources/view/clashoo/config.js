@@ -658,10 +658,10 @@ return view.extend({
       var link = document.createElement('link');
       link.id = 'cl-css-ext';
       link.rel = 'stylesheet';
-      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260609b1';
+      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260806a1';
       document.head.appendChild(link);
     } else {
-      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260609b1';
+      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260806a1';
     }
 
     if (coreType === 'singbox') return this._renderSingbox(sbData, uiData, subscriptionUpdateStatus);
@@ -1132,13 +1132,11 @@ return view.extend({
     o = s.option(form.Flag, 'ipv6_proxy',      _("IPv6 Proxy"));
     o = s.option(form.Flag, 'fake_ip_ping_hijack', _("Virtual IP Ping Hijacking"));
     o = s.option(form.Flag, 'dns_leak_protect', _("Prevent DNS Leaks"));
-    o.description = _("Regular domains only use overseas DNS and DNS connections follow proxy rules; DoT/DoQ (port 853) is blocked and IPv6 resolution is disabled. Takes effect after restart.<br>") +
-                    _("<strong>Note:</strong> Proxy node domains still use direct DNS for startup resolution, not for normal client domain queries.<br>") +
-                    _("<strong>Warning:</strong> After enabling, IPv6 sites can only be accessed over IPv4; pure IPv6 networks may lose connectivity.");
+    o.description = _("Regular domains use overseas DNS only and follow proxy rules; DoT/DoQ is blocked. Takes effect after restart.<br>") +
+                    _("<strong>Warning:</strong> IPv6 resolution is also disabled when IPv6 Proxy is off, to keep the real address from leaking.");
     o = s.option(form.Flag, 'core_only', _("Core Only (advanced)"));
-    o.description = _("Run only the core with your imported configuration, without taking over firewall / DNS / routing.<br>") +
-                    _("mihomo runs as-is for nikki/OpenClash compatibility; sing-box automatically upgrades old formats for momo/homeproxy compatibility.<br>") +
-                    _("<strong>Prerequisite:</strong> The configuration must include transparent proxying (TUN auto-route or TProxy inbound). Restart after switching.");
+    o.description = _("Run only the core with your imported configuration, without taking over firewall / DNS / routing. Compatible with nikki, OpenClash, momo and homeproxy configurations.<br>") +
+                    _("<strong>Prerequisite:</strong> The configuration must include transparent proxying (TUN auto-route or TProxy inbound). Takes effect after restart.");
 
     s = m.section(form.NamedSection, 'config', 'clashoo', _("Port Settings"));
     s.addremove = false;
@@ -1349,8 +1347,8 @@ return view.extend({
     o.depends('enhanced_mode', 'fake-ip');
 
     o = s.option(form.DynamicList, 'fake_ip_filter',    _("Fake-IP Filter Domains"));
-    o.placeholder = '*.lan / geosite:cn / RULE-SET,cn_domain,real-ip';
-    o.description = _("Blocklist/allowlist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: enter items with the same syntax as rules, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat.");
+    o.placeholder = '+.lan / geosite:cn / RULE-SET,cn_domain,real-ip';
+    o.description = _("Blocklist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: entries are converted to rule syntax automatically, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat. Allowlist mode drops the shipped defaults (they mean the opposite there), so enter your own domains.");
     o.depends('enhanced_mode', 'fake-ip');
     o.remove = function () {};
     o = s.option(form.DynamicList, 'default_nameserver', 'Bootstrap DNS');

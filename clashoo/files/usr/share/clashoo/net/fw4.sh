@@ -35,6 +35,11 @@ bool_enabled() {
 	esac
 }
 
+acl_bool() {
+	[ -n "$1" ] || return 0
+	bool_enabled "$1"
+}
+
 tun_available() {
 	ip tuntap add mode tun name cotuntest >/dev/null 2>&1 || return 1
 	ip link del cotuntest >/dev/null 2>&1 || true
@@ -77,6 +82,16 @@ acl_sections() {
 
 acl_list() {
 	uci_get "$1"
+}
+
+acl_sections_catchall_last() {
+	local section
+	for section in $(acl_sections); do
+		[ -z "$(acl_list "clashoo.${section}.ip")$(acl_list "clashoo.${section}.ip6")$(acl_list "clashoo.${section}.mac")" ] || printf '%s\n' "$section"
+	done
+	for section in $(acl_sections); do
+		[ -n "$(acl_list "clashoo.${section}.ip")$(acl_list "clashoo.${section}.ip6")$(acl_list "clashoo.${section}.mac")" ] || printf '%s\n' "$section"
+	done
 }
 
 grouped_acl_enabled() {
@@ -155,6 +170,16 @@ config_bypass_china() {
 	uci_get clashoo.config.bypass_china
 }
 
+config_bypass_china_ipv6() {
+	local value
+	value="$(uci_get clashoo.config.bypass_china_ipv6)"
+	if [ -n "$value" ]; then
+		printf '%s\n' "$value"
+	else
+		config_bypass_china
+	fi
+}
+
 config_block_quic() {
 	uci_get clashoo.config.block_quic
 }
@@ -230,6 +255,15 @@ config_bypass_fwmark() {
 	uci_list clashoo.config.bypass_fwmark
 }
 
+config_fake_ip_range6() {
+	local value
+	value="$(uci_get clashoo.config.fake_ip_range6)"
+	[ -n "$value" ] || value="fc00::/18"
+	[ "$(uci_get clashoo.config.enhanced_mode)" = "redir-host" ] && return 0
+	bool_enabled "$(uci_get clashoo.config.enable_ipv6)" || return 0
+	printf '%s\n' "$value"
+}
+
 config_fake_ip_range() {
 	local value
 	value="$(uci_get clashoo.config.fake_ip_range)"
@@ -267,10 +301,14 @@ remove_firewall_include() {
 }
 
 render_common_returns() {
-	cat <<'EOF'
-meta nfproto ipv4 ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return
-meta nfproto ipv6 ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
-EOF
+	local fake6
+	fake6="$(config_fake_ip_range6)"
+	printf '%s\n' 'meta nfproto ipv4 ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return'
+	if [ -n "$fake6" ]; then
+		printf 'meta nfproto ipv6 ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } ip6 daddr != %s return\n' "$fake6"
+	else
+		printf '%s\n' 'meta nfproto ipv6 ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return'
+	fi
 }
 
 render_ip_elements() {
@@ -350,9 +388,9 @@ render_port_match() {
 
 render_acl_dns_rules() {
 	local redirect_port="$1" section ipv4 ipv6 mac ipv4_elements ipv6_elements mac_elements action
-	for section in $(acl_sections); do
+	for section in $(acl_sections_catchall_last); do
 		[ "$(uci_get "clashoo.${section}.enabled")" != "0" ] || continue
-		if bool_enabled "$(uci_get "clashoo.${section}.dns")"; then
+		if acl_bool "$(uci_get "clashoo.${section}.dns")"; then
 			action="counter redirect to :${redirect_port}"
 		elif singbox_tun_active; then
 			action="meta mark set ${SINGBOX_BYPASS_FWMARK} ct mark set meta mark counter return"
@@ -388,12 +426,12 @@ render_acl_proxy_rules() {
 	local mode="$1" proto="$2" port_match="$3" target_port="$4"
 	local section ipv4 ipv6 mac ipv4_elements ipv6_elements mac_elements enabled action4 action6
 
-	for section in $(acl_sections); do
+	for section in $(acl_sections_catchall_last); do
 		[ "$(uci_get "clashoo.${section}.enabled")" != "0" ] || continue
 		enabled="$(uci_get "clashoo.${section}.proxy")"
 		case "$mode" in
 			redirect)
-				if bool_enabled "$enabled"; then
+				if acl_bool "$enabled"; then
 					if singbox_tun_active; then
 						action4="${port_match} ct mark set ${SINGBOX_BYPASS_FWMARK} counter redirect to :${target_port}"
 					else
@@ -409,7 +447,7 @@ render_acl_proxy_rules() {
 				fi
 				;;
 			tproxy)
-				if bool_enabled "$enabled"; then
+				if acl_bool "$enabled"; then
 					if singbox_tun_active; then
 						action4="${port_match} ct mark set ${SINGBOX_BYPASS_FWMARK} tproxy ip to :${target_port} meta mark set ${PROXY_FWMARK} counter accept"
 						action6="${port_match} ct mark set ${SINGBOX_BYPASS_FWMARK} tproxy ip6 to :${target_port} meta mark set ${PROXY_FWMARK} counter accept"
@@ -426,7 +464,7 @@ render_acl_proxy_rules() {
 				fi
 				;;
 			tun)
-				if bool_enabled "$enabled"; then
+				if acl_bool "$enabled"; then
 					action4="meta l4proto ${proto} counter return"
 				elif singbox_tun_active; then
 					action4="meta l4proto ${proto} meta mark set ${SINGBOX_BYPASS_FWMARK} ct mark set meta mark counter accept"
@@ -635,7 +673,7 @@ append_set_from_file_or_empty() {
 
 generate_rules() {
 	local redir_port tproxy_port tcp_mode udp_mode access_control fake_ip_range proxy_lan_ips reject_lan_ips
-	local proxy_tcp_dport proxy_udp_dport bypass_dscp bypass_fwmark
+	local proxy_tcp_dport proxy_udp_dport bypass_dscp bypass_fwmark bypass_china bypass_china_ipv6
 	local acl_catchall=0
 	redir_port="$(config_redir_port)"
 	tproxy_port="$(config_tproxy_port)"
@@ -644,6 +682,7 @@ generate_rules() {
 	access_control="$(config_access_control)"
 	grouped_acl_enabled && acl_has_catchall && acl_catchall=1
 	bypass_china="$(config_bypass_china)"
+	bypass_china_ipv6="$(config_bypass_china_ipv6)"
 	proxy_tcp_dport="$(config_proxy_tcp_dport)"
 	proxy_udp_dport="$(config_proxy_udp_dport)"
 	bypass_dscp="$(config_bypass_dscp)"
@@ -713,7 +752,7 @@ generate_rules() {
 			tcp_match="$(render_port_match tcp "$proxy_tcp_dport")"
 			cat >> "$DSTNAT_RULES" <<EOF
 $( render_common_returns )
-$( bool_enabled "$bypass_china" && printf '%s\n' 'ip6 daddr @clashoo_china6 return' )
+$( bool_enabled "$bypass_china_ipv6" && printf '%s\n' 'ip6 daddr @clashoo_china6 return' )
 $( bool_enabled "$bypass_china" && printf '%s\n' 'ip daddr @clashoo_china return' )
 $( [ -n "$dscp_elements" ] && printf '%s\n' "ip dscp { ${dscp_elements} } return" )
 $( [ -n "$dscp_elements" ] && printf '%s\n' "ip6 dscp { ${dscp_elements} } return" )
@@ -743,8 +782,10 @@ EOF
 		udp_match="$(render_port_match udp "$proxy_udp_dport")"
 		{
 			render_common_returns
-			if bool_enabled "$bypass_china"; then
+			if bool_enabled "$bypass_china_ipv6"; then
 				printf 'meta nfproto ipv6 ip6 daddr @clashoo_china6 return\n'
+			fi
+			if bool_enabled "$bypass_china"; then
 				printf 'ip daddr @clashoo_china return\n'
 			fi
 			if [ -n "$dscp_elements" ]; then
@@ -803,8 +844,21 @@ apply_rules() {
 			ip rule add fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
 		ip route show table "$PROXY_ROUTE_TABLE" 2>/dev/null | grep -q 'local 0.0.0.0/0 dev lo' ||
 			ip route add local 0.0.0.0/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		if bool_enabled "$(config_ipv6_proxy)"; then
+			ip -6 rule show 2>/dev/null | grep -q "fwmark ${PROXY_FWMARK}.*lookup ${_route_table_dec}" ||
+				ip -6 rule add fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+			ip -6 route show table "$PROXY_ROUTE_TABLE" 2>/dev/null | grep -q 'local default dev lo' ||
+				ip -6 route add local ::/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		else
+			ip -6 rule del fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+			ip -6 route del local ::/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		fi
 	else
 		remove_firewall_include clash_fw4_mangle
+		ip rule del fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		ip route del local 0.0.0.0/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		ip -6 rule del fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+		ip -6 route del local ::/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
 	fi
 	/etc/init.d/firewall restart >/dev/null 2>&1 || /etc/init.d/firewall reload >/dev/null 2>&1 || true
 	apply_acl_bypass_rules
@@ -825,6 +879,8 @@ remove_rules() {
 	rm -f "$SETS_RULES" "$DSTNAT_RULES" "$OUTPUT_RULES" "$MANGLE_RULES"
 	ip rule del fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
 	ip route del local 0.0.0.0/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+	ip -6 rule del fwmark "$PROXY_FWMARK" table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
+	ip -6 route del local ::/0 dev lo table "$PROXY_ROUTE_TABLE" >/dev/null 2>&1 || true
 	/etc/init.d/firewall restart >/dev/null 2>&1 || /etc/init.d/firewall reload >/dev/null 2>&1 || true
 }
 

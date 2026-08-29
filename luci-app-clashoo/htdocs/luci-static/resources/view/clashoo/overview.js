@@ -333,10 +333,10 @@ return view.extend({
       var link = document.createElement('link');
       link.id = 'cl-css-ext';
       link.rel = 'stylesheet';
-      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260609b1';
+      link.href = L.resource('view/clashoo/clashoo.css') + '?v=20260806a1';
       document.head.appendChild(link);
     } else {
-      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260609b1';
+      document.getElementById('cl-css-ext').href = L.resource('view/clashoo/clashoo.css') + '?v=20260806a1';
     }
 
     this._lastSt      = st;
@@ -1377,7 +1377,8 @@ return view.extend({
       return {
         tone: 'red',
         bars: 1,
-        text: (probe && probe.code && probe.code !== '000') ? 'Offline' : 'Timeout',
+        text: (probe && probe.code === 'skip') ? 'Core down' :
+          ((probe && probe.code && probe.code !== '000') ? 'Offline' : 'Timeout'),
         offline: true
       };
 
@@ -1739,7 +1740,7 @@ return view.extend({
 
         /* force proxy probes down when stopped (skip daemon refresh) */
         if (!st.running && ac && ac.proxy) {
-          var downProbe = { ok: false, state: 'down', code: '000', ok_count: 0, attempts: 1, loss: 1, avg_ms: 0 };
+          var downProbe = { ok: false, state: 'down', code: 'skip', ok_count: 0, attempts: 1, loss: 1, avg_ms: 0 };
           Object.keys(ac.proxy).forEach(function (k) { ac.proxy[k] = downProbe; });
         }
 

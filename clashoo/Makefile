@@ -1,18 +1,18 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=clashoo
-PKG_SHORT_SHA:=cd05b74
-PKG_COMMIT_DATE:=2026.08.02
+PKG_SHORT_SHA:=061966e
+PKG_COMMIT_DATE:=2026.08.27
 
 PKG_VERSION:=$(PKG_COMMIT_DATE)~$(PKG_SHORT_SHA)
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA).tar.gz
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-alpha-$(PKG_SHORT_SHA)
 PKG_SOURCE_URL:=https://github.com/kenzok8/openwrt-clashoo/releases/download/mihomo-src
-PKG_SOURCE_VERSION:=cd05b74fa6fe36f7227c1c540d6fb20bdfba3d51
-PKG_HASH:=7e853bfa089e1d7417f761ccde274dcdb43de85d41f218063066820cb5105067
+PKG_SOURCE_VERSION:=061966e79798ae1f953b6d96308738a082b394a5
+PKG_HASH:=1cda311e7eb5fec4845c3c4d81e8f5eb9c593114161ebceae61b61effff8d9c3
 PKG_BUILD_VERSION:=alpha-$(PKG_SHORT_SHA)
 
 PKG_LICENSE:=GPL3.0+
@@ -35,7 +35,7 @@ define Package/clashoo
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Clashoo (Mihomo)
-  DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +yq +firewall4 +ip-full +coreutils-nohup +kmod-inet-diag +kmod-nft-socket +kmod-nft-tproxy +kmod-tun +kmod-dummy +unzip
+  DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +yq +firewall4 +ip-full +coreutils-nohup +coreutils-timeout +kmod-inet-diag +kmod-nft-socket +kmod-nft-tproxy +kmod-tun +kmod-dummy +unzip
   PROVIDES:=mihomo clash-meta
 endef
 
@@ -71,6 +71,9 @@ define Package/clashoo/install
 	$(INSTALL_DATA) $(CURDIR)/files/etc/config/clashoo $(1)/usr/share/clashoo/clashoo.default
 	$(CP) $(CURDIR)/files/usr/share/clashoo/* $(1)/usr/share/clashoo/
 	$(INSTALL_BIN) $(CURDIR)/files/usr/share/clashoo/migrate_lan_acl.sh $(1)/usr/share/clashoo/migrate_lan_acl.sh
+	$(INSTALL_BIN) $(CURDIR)/files/usr/share/clashoo/migrate_fake_ip_filter.sh $(1)/usr/share/clashoo/migrate_fake_ip_filter.sh
+	$(INSTALL_BIN) $(CURDIR)/files/usr/share/clashoo/detect_core_arch.sh $(1)/usr/share/clashoo/detect_core_arch.sh
+	$(INSTALL_BIN) $(CURDIR)/files/usr/share/clashoo/diagnose_bypass.sh $(1)/usr/share/clashoo/diagnose_bypass.sh
 
 	$(RM) $(1)/usr/share/clashoo/dashboard
 	$(RM) $(1)/usr/share/clashoo/yacd
@@ -88,6 +91,8 @@ if [ -z "$${IPKG_INSTROOT}" ]; then
 	rm -f /usr/share/clashoo/rmlist.sh /usr/share/clashoo/uplist.sh /usr/share/clashoo/rpc_restart_async.sh /usr/share/clashoo/rpc_update_china_ip_async.sh
 	rm -rf /usr/share/clashoo/create
 	/usr/share/clashoo/migrate_lan_acl.sh >/dev/null 2>&1 || true
+	/usr/share/clashoo/migrate_fake_ip_filter.sh >/dev/null 2>&1 || true
+	/usr/share/clashoo/detect_core_arch.sh >/dev/null 2>&1 || true
 	if [ "$$(uci -q get clashoo.config.enable 2>/dev/null)" = "1" ]; then
 		/etc/init.d/clashoo enable 2>/dev/null || true
 	else

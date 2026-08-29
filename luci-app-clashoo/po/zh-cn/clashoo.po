@@ -87,14 +87,17 @@ msgstr "大陆流量在防火墙层直接绕过核心，DNS 体验略弱。按�
 msgid "Fast resolution and accurate routing; China routing is handled by the core."
 msgstr "解析快、分流准，大陆分流由内核完成。"
 
-msgid "<strong>Note:</strong> Proxy node domains still use direct DNS for startup resolution, not for normal client domain queries.<br>"
-msgstr "<strong>说明：</strong>代理节点域名仍使用直连 DNS 启动解析，不用于客户端普通域名查询。<br>"
+msgid "<strong>Prerequisite:</strong> The configuration must include transparent proxying (TUN auto-route or TProxy inbound). Takes effect after restart."
+msgstr "<strong>前提：</strong>配置自带透明代理（TUN auto-route 或 TProxy 入站），重启生效。"
 
-msgid "<strong>Prerequisite:</strong> The configuration must include transparent proxying (TUN auto-route or TProxy inbound). Restart after switching."
-msgstr "<strong>前提：</strong>配置自带透明代理（TUN auto-route 或 TProxy 入站），切换后需重启生效。"
+msgid "<strong>Warning:</strong> IPv6 resolution is also disabled when IPv6 Proxy is off, to keep the real address from leaking."
+msgstr "<strong>注意：</strong>「IPv6 代理」关闭时会一并停用 IPv6 解析，避免真实地址泄漏。"
 
-msgid "<strong>Warning:</strong> After enabling, IPv6 sites can only be accessed over IPv4; pure IPv6 networks may lose connectivity."
-msgstr "<strong>注意：</strong>开启后 IPv6 网站只能通过 IPv4 访问，纯 IPv6 网络下可能无法上网。"
+msgid "Not detected, please select"
+msgstr "未检测到，请手动选择"
+
+msgid "Could not detect the device architecture; select it manually before updating the core."
+msgstr "未能识别设备架构，更新内核前请先手动选择。"
 
 msgid "Access Check"
 msgstr "访问检查"
@@ -183,8 +186,17 @@ msgstr "后端核心"
 msgid "Backup and Restore"
 msgstr "备份与还原"
 
+msgid "Backup file is too large"
+msgstr "备份文件过大"
+
+msgid "Backup exported"
+msgstr "备份已导出"
+
 msgid "Backup exported ("
 msgstr "备份已导出（"
+
+msgid "Backup files contain subscription and node credentials. Store them securely."
+msgstr "备份文件包含订阅和节点凭据，请妥善保管。"
 
 msgid "Backup restored, restarting service"
 msgstr "已还原备份，正在重启服务"
@@ -201,11 +213,14 @@ msgstr "黑名单"
 msgid "Blocklist (listed items use real IP, default)"
 msgstr "黑名单（列入走真 IP，默认）"
 
-msgid "Blocklist/allowlist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: enter items with the same syntax as rules, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat."
-msgstr "黑名单/白名单模式：填域名或 <code>geosite:cn</code> 简写。规则模式：填 <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code> 这种与 rules 同语法的条目，末尾通常加一条 <code>MATCH,fake-ip</code> 兜底。填 <code>geosite:cn</code> 会自动改用内置 cn.mrs 加速，免加载 10MB geosite.dat。"
+msgid "Blocklist mode: enter domains or shorthand like <code>geosite:cn</code>. Rule mode: entries are converted to rule syntax automatically, such as <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code>; usually add <code>MATCH,fake-ip</code> at the end as fallback. <code>geosite:cn</code> automatically uses built-in cn.mrs acceleration and avoids loading the 10MB geosite.dat. Allowlist mode drops the shipped defaults (they mean the opposite there), so enter your own domains."
+msgstr "黑名单模式：填域名或 <code>geosite:cn</code> 简写。规则模式：条目会自动转成 <code>GEOSITE,cn,real-ip</code> / <code>RULE-SET,xxx,real-ip</code> 这种与 rules 同语法的写法，末尾通常加一条 <code>MATCH,fake-ip</code> 兜底。填 <code>geosite:cn</code> 会自动改用内置 cn.mrs 加速，免加载 10MB geosite.dat。白名单模式下随包自带的默认项含义相反，会被跳过，请自行填写需要 Fake-IP 的域名。"
 
-msgid "Bypass China IP"
-msgstr "大陆 IP 绕过"
+msgid "Bypass China IPv4"
+msgstr "大陆 IPv4 绕过"
+
+msgid "Bypass China IPv6"
+msgstr "大陆 IPv6 绕过"
 
 msgid "Bypass Ports"
 msgstr "绕过端口"
@@ -798,9 +813,6 @@ msgstr "内存使用 %s"
 msgid "mihomo restarted successfully, please wait for servers to come online."
 msgstr "mihomo 重启成功，请等待服务器上线！"
 
-msgid "mihomo runs as-is for nikki/OpenClash compatibility; sing-box automatically upgrades old formats for momo/homeproxy compatibility.<br>"
-msgstr "mihomo 原样运行，适配 nikki、OpenClash；sing-box 自动升级老格式，兼容 momo、homeproxy。<br>"
-
 msgid "mihomo Stable"
 msgstr "mihomo 稳定版"
 
@@ -884,6 +896,9 @@ msgstr "关闭"
 
 msgid "Only subscriptions with recorded source URLs are overwritten; no duplicate files are created."
 msgstr "仅覆盖已记录来源链接的订阅，不会生成重复文件。"
+
+msgid "Only .tar.gz and legacy .json backup files are supported"
+msgstr "仅支持 .tar.gz 和旧版 .json 备份文件"
 
 msgid "Open Dashboard"
 msgstr "打开面板"
@@ -993,8 +1008,8 @@ msgstr "IPv6"
 msgid "MAC"
 msgstr "MAC"
 
-msgid "Rules are matched from top to bottom. Unmatched devices use DNS takeover and proxy by default."
-msgstr "规则按从上到下的顺序匹配；未命中的设备默认接管 DNS 并走代理。"
+msgid "Rules are matched from top to bottom. Unmatched devices use DNS takeover and proxy by default. A rule with IPv4, IPv6 and MAC all empty matches every device."
+msgstr "规则按从上到下的顺序匹配；未命中的设备默认接管 DNS 并走代理。IPv4、IPv6、MAC 全部留空的规则匹配所有设备。"
 
 msgid "Proxy Authentication"
 msgstr "代理认证"
@@ -1044,8 +1059,8 @@ msgstr "刷新"
 msgid "Refresh Access Check"
 msgstr "刷新访问检查"
 
-msgid "Regular domains only use overseas DNS and DNS connections follow proxy rules; DoT/DoQ (port 853) is blocked and IPv6 resolution is disabled. Takes effect after restart.<br>"
-msgstr "普通域名仅使用境外 DNS 并让 DNS 连接遵守代理规则，同时阻断 DoT/DoQ（853 端口）并关闭 IPv6 解析。重启生效。<br>"
+msgid "Regular domains use overseas DNS only and follow proxy rules; DoT/DoQ is blocked. Takes effect after restart.<br>"
+msgstr "普通域名只走境外 DNS 并遵守代理规则，阻断 DoT/DoQ。重启生效。<br>"
 
 msgid "Regularly update rule data"
 msgstr "定时更新规则数据"
@@ -1107,8 +1122,8 @@ msgstr "运行模式"
 msgid "Run mode setting failed: "
 msgstr "运行模式设置失败: "
 
-msgid "Run only the core with your imported configuration, without taking over firewall / DNS / routing.<br>"
-msgstr "只用你导入的配置跑内核，不接管防火墙 / DNS / 路由。<br>"
+msgid "Run only the core with your imported configuration, without taking over firewall / DNS / routing. Compatible with nikki, OpenClash, momo and homeproxy configurations.<br>"
+msgstr "只用你导入的配置跑内核，不接管防火墙 / DNS / 路由，兼容 nikki、OpenClash、momo、homeproxy 配置。<br>"
 
 msgid "Running degraded"
 msgstr "已降级运行"
@@ -1449,6 +1464,9 @@ msgstr "正在更新全部订阅…"
 msgid "Updating…"
 msgstr "更新中…"
 
+msgid "Unable to read backup file"
+msgstr "无法读取备份文件"
+
 msgid "Upload"
 msgstr "上传"
 
@@ -1460,6 +1478,9 @@ msgstr "上传失败"
 
 msgid "Upload failed: "
 msgstr "上传失败: "
+
+msgid "Upload offset mismatch"
+msgstr "上传偏移不匹配"
 
 msgid "Upload JSON Configuration"
 msgstr "上传 JSON 配置"
@@ -1492,7 +1513,7 @@ msgid "Username"
 msgstr "用户名"
 
 msgid "Virtual IP Ping Hijacking"
-msgstr "虚拟 IP Ping 劫持"
+msgstr "Fake-IP Ping 劫持"
 
 msgid "Wait for the current task to complete"
 msgstr "等待当前任务完成"
