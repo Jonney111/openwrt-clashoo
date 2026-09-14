@@ -790,6 +790,11 @@ _dnsmasq_state_digest() {
 		"$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null)"
 }
 
+_reload_dnsmasq() {
+	/etc/init.d/dnsmasq reload >/dev/null 2>&1 && return 0
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
 revert_dns() {
 #===========================================================================================================================  
 	local _before _after
@@ -803,7 +808,7 @@ revert_dns() {
 		return 0
 	fi
 	uci commit dhcp
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	_reload_dnsmasq >/dev/null 2>&1
 #=========================================================================================================================== 	 
 }
 
@@ -1040,11 +1045,130 @@ _clashoo_dns_force_fields() {
 	return 0
 }
 
+_dns_nameserver_inherit_mode() {
+	local has_nameserver marker prefer_h3 respect_false has_proxy force_respect
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+
+	has_nameserver="$(yq -M e '(.dns.nameserver // null) | (tag != "!!null" and length > 0)' "$CONFIG_YAML" 2>/dev/null)"
+	[ "$has_nameserver" = "true" ] || return 0
+
+	marker=0
+	if yq -M e -r '(.dns.nameserver // null) | .. | select(tag == "!!str")' "$CONFIG_YAML" 2>/dev/null |
+		awk '
+		{
+			hash = index($0, "#")
+			if (!hash) next
+			fragment = substr($0, hash + 1)
+			split(fragment, parts, "&")
+			if (parts[1] !~ /=/) { found = 1; exit }
+		}
+		END { exit(found ? 0 : 1) }'; then
+		marker=1
+	fi
+	prefer_h3="$(yq -M e '(.dns."prefer-h3" // false) == true' "$CONFIG_YAML" 2>/dev/null)"
+	respect_false="$(yq -M e '((.dns // {}) | has("respect-rules")) and ((.dns."respect-rules") == false or (.dns."respect-rules") == "false")' "$CONFIG_YAML" 2>/dev/null)"
+	has_proxy="$(yq -M e '(.dns // {}) | has("proxy-server-nameserver")' "$CONFIG_YAML" 2>/dev/null)"
+	force_respect=0
+	case ",${CLASHOO_DNS_FORCE:-}," in
+		*,respect-rules,*) force_respect=1 ;;
+	esac
+
+	# skip suppresses both the generated proxy role and automatic respect-rules.
+	if [ "$marker" = "1" ] ||
+		{ [ "$prefer_h3" = "true" ] && [ "$force_respect" != "1" ]; } ||
+		{ [ "$respect_false" = "true" ] && [ "$force_respect" != "1" ]; } ||
+		[ "$(uci -q get clashoo.config.dns_respect_rules 2>/dev/null)" = "0" ]; then
+		printf '%s' skip
+		return 0
+	fi
+	case ",${CLASHOO_DNS_FORCE:-}," in
+		*,proxy-server-nameserver,*) return 0 ;;
+	esac
+	[ "$has_proxy" = "true" ] && return 0
+	printf '%s' inherit
+}
+
+_adapt_dns_loopback_resolver() {
+	local filter listen host host_pattern old_port servers replacement tmp
+	[ "$(uci -q get clashoo.config.dns_loopback_compat 2>/dev/null)" = "1" ] || return 0
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+
+	filter="${CLASHOO_DNS_LOOPBACK_FILTER:-/usr/share/clashoo/runtime/dns_loopback_adapter.yq}"
+	[ -r "$filter" ] || return 0
+	[ "$(yq -M e '(.dns."proxy-server-nameserver" | type)' "$CONFIG_YAML" 2>/dev/null)" = "!!seq" ] || return 0
+
+	listen="$(yq -M e -r '.dns.listen // ""' "$CONFIG_YAML" 2>/dev/null)"
+	old_port="${listen##*:}"
+	host="${listen%:*}"
+	printf '%s' "$old_port" | grep -Eq '^[0-9]+$' || return 0
+	host="$(printf '%s' "$host" | tr 'A-Z' 'a-z')"
+	case "$host" in
+		""|0.0.0.0|'[::]'|::)
+			host_pattern='(localhost|127(\.[0-9]{1,3}){3}|\[?::1\]?)' ;;
+		localhost)
+			host_pattern='localhost' ;;
+		127.*)
+			printf '%s' "$host" | grep -Eq '^127(\.[0-9]{1,3}){3}$' || return 0
+			host_pattern="$(printf '%s' "$host" | sed 's/\./\\./g')" ;;
+		'[::1]'|::1)
+			host_pattern='\[?::1\]?' ;;
+		*)
+			return 0 ;;
+	esac
+
+	servers="$(yq -M e -r '.dns."proxy-server-nameserver"[]' "$CONFIG_YAML" 2>/dev/null)"
+	printf '%s\n' "$servers" | grep -Eiq "^([A-Za-z][A-Za-z0-9+.-]*://)?(${host_pattern}):${old_port}($|[/#?])" || return 0
+
+	replacement="$(uci -q get clashoo.config.dns_loopback_compat_resolver 2>/dev/null)"
+	[ -n "$replacement" ] || replacement='udp://223.5.5.5:53 udp://119.29.29.29:53'
+	tmp="$(mktemp "${CONFIG_YAML}.dns-loopback.XXXXXX" 2>/dev/null)" || return 0
+	export CLASHOO_DNS_OLD_PORT="$old_port"
+	export CLASHOO_DNS_HOST_PATTERN="$host_pattern"
+	export CLASHOO_DNS_REPLACEMENT="$replacement"
+	if yq -M e --from-file "$filter" "$CONFIG_YAML" > "$tmp" 2>/dev/null &&
+		mv -f "$tmp" "$CONFIG_YAML"; then
+		log_msg "Adapted stale loopback proxy DNS" "已适配失效的回环节点 DNS"
+	else
+		rm -f "$tmp"
+		log_msg "Loopback proxy DNS adaptation failed; preserved source settings" "回环节点 DNS 适配失败，已保留原配置"
+	fi
+	unset CLASHOO_DNS_OLD_PORT CLASHOO_DNS_HOST_PATTERN CLASHOO_DNS_REPLACEMENT
+	return 0
+}
+
+backfill_custom_sniffer_overrides() {
+	[ "$CLASHOO_KEEP_SNIFFER" = "1" ] || return 0
+	[ "$(uci -q get clashoo.config.sniffer_streaming 2>/dev/null)" = "1" ] || return 0
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	[ -r /usr/share/clashoo/runtime/sniffer_overrides.yq ] || return 0
+	yq -M e -i --from-file /usr/share/clashoo/runtime/sniffer_overrides.yq "$CONFIG_YAML" 2>/dev/null || true
+}
+
+ensure_quic_fallback_guard() {
+	[ "$(uci -q get clashoo.config.sniffer_streaming 2>/dev/null)" = "1" ] || return 0
+	[ "${EFFECTIVE_UDP_MODE:-off}" != "off" ] || return 0
+	[ "$(uci -q get clashoo.config.block_quic 2>/dev/null)" != "1" ] || return 0
+	command -v yq >/dev/null 2>&1 || return 0
+	[ -s "$CONFIG_YAML" ] || return 0
+	[ -r /usr/share/clashoo/runtime/quic_fallback_guard.yq ] || return 0
+	yq -M e -i --from-file /usr/share/clashoo/runtime/quic_fallback_guard.yq "$CONFIG_YAML" 2>/dev/null || true
+}
+
 yml_change() {
 	CLASHOO_DNS_FORCE="$(_clashoo_dns_force_fields)"
 	CLASHOO_DNS_PRESENT="$(_user_dns_fields "$CLASHOO_DNS_FORCE")"
+	CLASHOO_DNS_INHERIT_MODE="$(_dns_nameserver_inherit_mode)"
+	CLASHOO_DNS_INHERIT_NAMESERVER=""
+	if [ "$CLASHOO_DNS_INHERIT_MODE" = "inherit" ]; then
+		CLASHOO_DNS_INHERIT_NAMESERVER="$(yq -M e -o=json '(.dns.nameserver // [])' "$CONFIG_YAML" 2>/dev/null)"
+	fi
 	export CLASHOO_DNS_FORCE
 	export CLASHOO_DNS_PRESENT
+	export CLASHOO_DNS_INHERIT_MODE
+	export CLASHOO_DNS_INHERIT_NAMESERVER
 	CLASHOO_KEEP_FAKEIP_FILTER=""
 	CLASHOO_KEEP_SNIFFER=""
 	if command -v yq >/dev/null 2>&1 && [ -s "$CONFIG_YAML" ]; then
@@ -1059,6 +1183,8 @@ yml_change() {
 		yq -M eval-all '. as $item ireduce ({}; . * $item)' "$CONFIG_YAML" /tmp/_clashoo_mixin.yaml > "${CONFIG_YAML}.mixin" 2>/dev/null && 
 		mv -f "${CONFIG_YAML}.mixin" "$CONFIG_YAML" 2>/dev/null && 
 		rm -f /tmp/_clashoo_mixin.yaml 2>/dev/null
+	backfill_custom_sniffer_overrides
+	ensure_quic_fallback_guard
 }
 
 _uci_fake_ip_filter_extras() {
@@ -1562,8 +1688,7 @@ singbox_dns_change() {
 	fi
 	if [ "$(_dnsmasq_state_digest)" != "$_sb_dns_before" ]; then
 		uci commit dhcp >/dev/null 2>&1
-		/etc/init.d/dnsmasq stop >/dev/null 2>&1
-		/etc/init.d/dnsmasq start >/dev/null 2>&1
+		_reload_dnsmasq >/dev/null 2>&1
 	else
 		uci -q revert dhcp >/dev/null 2>&1
 	fi
@@ -1859,6 +1984,7 @@ _start_prepare_config() {
 	if command -v yq >/dev/null 2>&1 && grep -q '<<[[:space:]]*:' "$CONFIG_YAML" 2>/dev/null; then
 		yq e -i 'explode(.)' "$CONFIG_YAML" 2>/dev/null || true
 	fi
+	_adapt_dns_loopback_resolver >/dev/null 2>&1
 	# stage bundled cn.mrs into the core dir; mihomo rejects rule-set paths outside /etc/clashoo
 	if [ -f /usr/share/clashoo/ruleset/cn.mrs ]; then
 		if [ ! -f /etc/clashoo/ruleset/cn.mrs ] || [ /usr/share/clashoo/ruleset/cn.mrs -nt /etc/clashoo/ruleset/cn.mrs ]; then
@@ -1972,8 +2098,7 @@ _start_launch_core() {
 
 		if [ "$(_dnsmasq_state_digest)" != "$_dnsmasq_digest_before" ]; then
 			log_msg "Reloading DNS resolver" "重启 DNS 解析"
-			/etc/init.d/dnsmasq stop >/dev/null 2>&1
-			/etc/init.d/dnsmasq start >/dev/null 2>&1
+			_reload_dnsmasq >/dev/null 2>&1
 		fi
 
 		restore >/dev/null 2>&1
@@ -2020,7 +2145,7 @@ boot(){
 		runtime_state_set "health_status" "starting"
 		runtime_state_set "health_detail" "boot_starting"
 		runtime_state_set "updated_at" "$(date +%s)"
-		# start_service does mihomo -t dry-run + firewall restart + dnsmasq restart
+		# start_service does mihomo -t dry-run + firewall restart + dnsmasq reload/fallback
 		# (~20-30s on LXC). Doing this synchronously in boot() blocks rcS S99 stage
 		# and during that window sshd/uhttpd refuse connections (kex reset). Detach
 		# to background with a small settle delay so the rcS pipeline finishes and
@@ -2262,6 +2387,9 @@ reload_service()
 			-X PUT -d '{"path":"'"$CONFIG_YAML"'"}' \
 			"http://${_lip}:${_dp}/configs?force=true" >/dev/null 2>&1
 		backend_apply_rules 2>/dev/null
+		if [ "$(uci -q get clashoo.config.core_only 2>/dev/null)" != "1" ]; then
+			_reload_dnsmasq >/dev/null 2>&1
+		fi
 		runtime_run_health_check_settle >/dev/null 2>&1
 	fi
 }

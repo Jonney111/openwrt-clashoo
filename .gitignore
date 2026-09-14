@@ -47,6 +47,7 @@ SKILLS.md
 dist/
 test-http/
 _device_snapshot/
+/tests/
 *.log
 demo-flow.html
 

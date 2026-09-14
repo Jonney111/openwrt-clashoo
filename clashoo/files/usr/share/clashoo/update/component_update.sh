@@ -7,7 +7,13 @@ TMP_DIR="/tmp/clashoo-component-update"
 APK_UPGRADE_FLAG="/var/run/clashoo_package_upgrade"
 FEED_BASE_URL="https://down.dllkids.xyz/openwrt-feed/clashoo"
 GITHUB_API_URL="https://api.github.com/repos/kenzok8/openwrt-clashoo/releases/latest"
-GITHUB_PROXY_PREFIX="${GITHUB_PROXY_PREFIX:-https://ghfast.top/}"
+ENV_GITHUB_PROXY_PREFIX="${GITHUB_PROXY_PREFIX:-}"
+UCI_GITHUB_PROXY_PREFIX="$(uci -q get clashoo.config.core_mirror_prefix 2>/dev/null)"
+GITHUB_PROXY_PREFIX="${UCI_GITHUB_PROXY_PREFIX:-${ENV_GITHUB_PROXY_PREFIX:-https://ghfast.top/}}"
+case "$GITHUB_PROXY_PREFIX" in
+  */) ;;
+  *) GITHUB_PROXY_PREFIX="${GITHUB_PROXY_PREFIX}/" ;;
+esac
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-8}"
 REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-20}"
 LOW_SPEED_TIME="${LOW_SPEED_TIME:-30}"
@@ -295,9 +301,10 @@ package_version_from_url() {
   case "$file" in
     clashoo_*_"$ARCH".ipk)
       v="${file#clashoo_}"
-      printf '%s\n' "${v%_${ARCH}.ipk}"
+      v="${v%_${ARCH}.ipk}"
+      printf '%s\n' "$v" | sed 's/^\([0-9][0-9][0-9][0-9]\.[0-9][0-9]*\.[0-9][0-9]*\)\./\1~/'
       ;;
-    clashoo_*.ipk) printf '%s\n' "$file" | sed -n 's/^clashoo_\(.*\)_[^_][^_]*\.ipk$/\1/p' ;;
+    clashoo_*.ipk) printf '%s\n' "$file" | sed -n 's/^clashoo_\(.*\)_[^_][^_]*\.ipk$/\1/p' | sed 's/^\([0-9][0-9][0-9][0-9]\.[0-9][0-9]*\.[0-9][0-9]*\)\./\1~/' ;;
     luci-app-clashoo_*.ipk) printf '%s\n' "$file" | sed -n 's/^luci-app-clashoo_\(.*\)_all\.ipk$/\1/p' ;;
     luci-i18n-clashoo-zh-cn_*.ipk) printf '%s\n' "$file" | sed -n 's/^luci-i18n-clashoo-zh-cn_\(.*\)_all\.ipk$/\1/p' ;;
     clashoo-*.apk)

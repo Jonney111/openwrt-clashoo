@@ -3030,10 +3030,17 @@ let target = dir + '/' + name;
 let file_exists = !!access(target, 'r');
 let alt_name = name;
 let alt_target = target;
+let mirrored_template = null;
 
 if (type == '1' && match(name, /_new\.(yaml|yml)$/)) {
 alt_name = replace(name, /_new\.(yaml|yml)$/, '.yaml');
 alt_target = dir + '/' + alt_name;
+}
+
+if (type == '3' && file_exists) {
+let user_template = TEMPLATE_USER_DIR + '/' + name;
+if (access(user_template, 'r') && readfile(user_template) == readfile(target))
+mirrored_template = user_template;
 }
 
 if (file_exists) {
@@ -3047,6 +3054,9 @@ unlink(target + '.ua');
 else if (type != '1') {
 return { error: 'not found' };
 }
+
+if (mirrored_template)
+unlink(mirrored_template);
 
 if (type == '1' && alt_target != target && access(alt_target, 'r')) {
 unlink(alt_target);
@@ -3351,9 +3361,9 @@ return { success: false, error: 'missing_yq', message: '缺少 yq，无法注入
 	if (!access(exploded, "r")) {
 		system("cp -f " + shell_quote(tmp_tpl) + " " + shell_quote(exploded));
 	}
-	/* proxy-providers 和 rule-providers 两处都注入（兼容不同模板格式） */
+	/* 只替换 proxy-providers.url，rule-providers 指向规则集保持原样 */
 	let inject_cmd = "URL=" + shell_quote(sub_url)
-		+ " yq e '.\\\"proxy-providers\\\"[].url = env(URL) | .\\\"rule-providers\\\"[].url = env(URL)' "
+		+ " yq e '.[\"proxy-providers\"][].url = env(URL)' "
 		+ shell_quote(exploded) + " > " + shell_quote(tmp_out);
 	if (system(inject_cmd) != 0 || !access(tmp_out, "r")) {
 		system("rm -f " + shell_quote(exploded));
@@ -3799,6 +3809,50 @@ system('rm -f ' + shell_quote(tmp));
 if (writefile(dir + '/' + name, content) === null)
   return { success: false, error: 'write_failed', message: '写入文件失败' };
 return { success: true, name };
+}
+},
+
+save_singbox_profile_chunk: {
+args: { name: 'name', content: 'content', index: 'index', total: 'total' },
+call: function(req) {
+let name    = req.args?.name    || '';
+let content = req.args?.content;
+let idx     = int(req.args?.index || 0);
+let total   = int(req.args?.total || 0);
+if (!name || index(name, '/') >= 0 || index(name, '..') >= 0)
+  return { success: false, error: 'invalid name' };
+if (!match(name, /\.json$/)) name = name + '.json';
+if (type(content) != 'string') return { success: false, error: 'invalid content' };
+if (total < 1 || idx < 0 || idx >= total) return { success: false, error: 'invalid chunk' };
+if (total == 1 && !content) return { success: false, error: 'empty content' };
+let dir = '/usr/share/clashoo/config/singbox';
+system('mkdir -p ' + shell_quote(dir) + ' >/dev/null 2>&1');
+let tmp = '/tmp/clashoo_sb_upload_' + name;
+if (idx == 0) {
+  if (writefile(tmp, content) === null)
+    return { success: false, error: 'write_failed', message: '写入文件失败' };
+} else {
+  let fp = open(tmp, 'a');
+  if (!fp) return { success: false, error: 'write_failed', message: '打开文件失败' };
+  let ok = fp.write(content);
+  fp.close();
+  if (ok === null) return { success: false, error: 'write_failed', message: '写入文件失败' };
+}
+if (idx + 1 < total)
+  return { success: true, name, index: idx, total, complete: false };
+let binary = find_binary();
+if (binary && match(binary, /sing-box/)) {
+  if (system(shell_quote(binary) + ' check -c ' + shell_quote(tmp) + ' >/dev/null 2>&1') != 0) {
+    system('rm -f ' + shell_quote(tmp));
+    return { success: false, error: 'invalid_config', message: 'sing-box 配置验证失败，请检查 JSON 格式' };
+  }
+}
+if (system('cp -f ' + shell_quote(tmp) + ' ' + shell_quote(dir + '/' + name) + ' >/dev/null 2>&1') != 0) {
+  system('rm -f ' + shell_quote(tmp));
+  return { success: false, error: 'write_failed', message: '写入文件失败' };
+}
+system('rm -f ' + shell_quote(tmp));
+return { success: true, name, index: idx, total, complete: true };
 }
 },
 
